@@ -52,6 +52,7 @@ var RequiredRootDocs = []string{
 	"docs/adr/0012-bounded-v3-usm.md",
 	"docs/adr/0013-trap-store-ephemeral.md",
 	"docs/adr/0014-host-residual-10161-10162.md",
+	"docs/adr/0015-community-file-refs.md",
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",

@@ -25,7 +25,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version", "-v", "--version":
 		_, _ = fmt.Fprintln(stdout, buildinfo.Current().String())
 		return 0
-	case "validate", "canonicalize", "serve", "healthcheck", "mcp-stdio":
+	case "validate":
+		return validateCmd(args[2:], stdout, stderr)
+	case "canonicalize":
+		return canonicalizeCmd(args[2:], stdout, stderr)
+	case "serve", "healthcheck", "mcp-stdio":
 		_, _ = fmt.Fprintf(stderr, "labsnmp %s: not implemented\n", args[1])
 		return 1
 	default:

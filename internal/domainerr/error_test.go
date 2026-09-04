@@ -43,4 +43,19 @@ func TestConstructors(t *testing.T) {
 	if New(CodeNotFound, "").Error() != string(CodeNotFound) {
 		t.Fatal("empty message")
 	}
+	if UnknownField("x").Code != CodeUnknownField {
+		t.Fatal("UnknownField")
+	}
+	if ReservedKey("x").Code != CodeReservedKey {
+		t.Fatal("ReservedKey")
+	}
+	if TLSUnsupported("x").Code != CodeTLSUnsupported {
+		t.Fatal("TLSUnsupported")
+	}
+	if USMAlgUnsupported("x").Code != CodeUSMAlgUnsupported {
+		t.Fatal("USMAlgUnsupported")
+	}
+	if Retryable(CodeWaitTimeout) != true || Retryable(CodeUSMAlgUnsupported) {
+		t.Fatal("retryable catalog")
+	}
 }

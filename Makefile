@@ -61,7 +61,10 @@ test-docs:
 test-changelog:
 	$(GO) run ./scripts/checkchangelog
 
-generate verify-generated test-fuzz-smoke test-parity test-config-compat \
+test-config-compat:
+	$(GO) test ./internal/config -run TestConfigCompat -count=1
+
+generate verify-generated test-fuzz-smoke test-parity \
 test-container security-scan web-install web-test web-build web-embed:
 	@echo 'make $@: not implemented' >&2
 	@false

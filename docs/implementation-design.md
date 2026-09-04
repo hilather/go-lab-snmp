@@ -64,8 +64,8 @@ Closest siblings: LabNTP (first-party UDP responder), LabMail (receive-only stor
 | D17 | `allowLegacyClients` default false; lab overlay true |
 | D18 | Hand-rolled OpenMetrics |
 | D19 | Official MCP SDK only on the adapter |
-| D20 | `valueFrom: processUptime` is the only dynamic source |
-| D21 | Community inline XOR `communityFile` |
+| D20 | `valueFrom: uptime` is the only dynamic source (ADR 0011) |
+| D21 | `communityFile` required; `name` is a DNS-label row id (K4, ADR 0015) |
 | D22 | No userland-proxy readiness gate (identity is community/user) |
 | D23 | Placeholder Make targets fail closed |
 | D24 | Integrator pin LAST |
@@ -73,6 +73,13 @@ Closest siblings: LabNTP (first-party UDP responder), LabMail (receive-only stor
 | D26 | Cookie `labsnmp_session`; CSRF `X-LabSNMP-CSRF` |
 | D27 | Ready = enabled listeners bound + snapshot + (mgmt bound or off) |
 | D28 | Unauth traps dropped by default |
+
+D20: TimeTicks `valueFrom` is `uptime`, computed at read time from
+`uptimeEpoch` as `uint32((now.Sub(uptimeEpoch) / 10ms) % (1<<32))`.
+`processUptime` is not a legal YAML value.
+
+D21: `communities[].communityFile` is required. The wire string is
+trimmed file contents. Inline `community:` XOR file-ref is rejected.
 
 ## Package map
 

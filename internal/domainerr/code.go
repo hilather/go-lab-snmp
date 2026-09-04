@@ -14,6 +14,21 @@ const (
 	CodeRateLimited         Code = "rate_limited"
 	CodeTimeout             Code = "timeout"
 	CodeInternalError       Code = "internal_error"
+
+	CodeUnknownField      Code = "unknown_field"
+	CodeReservedKey       Code = "reserved_key"
+	CodeImmutableField    Code = "immutable_field"
+	CodeRevisionMismatch  Code = "revision_mismatch"
+	CodeNotWritable       Code = "not_writable"
+	CodeWrongType         Code = "wrong_type"
+	CodeWaitTimeout       Code = "wait_timeout"
+	CodeStoreWiped        Code = "store_wiped"
+	CodeUnauthorized      Code = "unauthorized"
+	CodeOriginNotAllowed  Code = "origin_not_allowed"
+	CodeTLSUnsupported    Code = "tls_unsupported"
+	CodeNoSuchInstance    Code = "no_such_instance"
+	CodeEndOfMibView      Code = "end_of_mib_view"
+	CodeUSMAlgUnsupported Code = "usm_alg_unsupported"
 )
 
 var catalog = []struct {
@@ -30,6 +45,20 @@ var catalog = []struct {
 	{CodeRateLimited, true},
 	{CodeTimeout, true},
 	{CodeInternalError, true},
+	{CodeUnknownField, false},
+	{CodeReservedKey, false},
+	{CodeImmutableField, false},
+	{CodeRevisionMismatch, true},
+	{CodeNotWritable, false},
+	{CodeWrongType, false},
+	{CodeWaitTimeout, true},
+	{CodeStoreWiped, false},
+	{CodeUnauthorized, false},
+	{CodeOriginNotAllowed, false},
+	{CodeTLSUnsupported, false},
+	{CodeNoSuchInstance, false},
+	{CodeEndOfMibView, false},
+	{CodeUSMAlgUnsupported, false},
 }
 
 // Codes returns the stable catalog in documented order.

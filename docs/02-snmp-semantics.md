@@ -36,7 +36,7 @@ GetBulk on v1 is a parse error (not a PDU). Walk is not a PDU; GETNEXT/GETBULK c
 5. Resolve `map` name → compiled tree.
 6. Access `read` forbids Set (error-status `noAccess` / `notWritable` per version).
 
-Inline `community: public` is allowed (identifier on a cleartext protocol). `communityFile` is allowed instead. Both set on one row is a validate error.
+`communities[].name` is a DNS-label row id (REST/MCP/UI). The wire community octet string is the trimmed contents of the required `communityFile`. Inline `community:` / `secretFile` on a community row is an unknown or validate error.
 
 ## USM resolution (v3, RFC 3414)
 

@@ -134,3 +134,19 @@ func Timeout(message string) *Error {
 func Internal(message string) *Error {
 	return New(CodeInternalError, message)
 }
+
+func UnknownField(message string, violations ...FieldViolation) *Error {
+	return New(CodeUnknownField, message).WithViolations(violations...)
+}
+
+func ReservedKey(message string, violations ...FieldViolation) *Error {
+	return New(CodeReservedKey, message).WithViolations(violations...)
+}
+
+func TLSUnsupported(message string, violations ...FieldViolation) *Error {
+	return New(CodeTLSUnsupported, message).WithViolations(violations...)
+}
+
+func USMAlgUnsupported(message string, violations ...FieldViolation) *Error {
+	return New(CodeUSMAlgUnsupported, message).WithViolations(violations...)
+}

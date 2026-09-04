@@ -14,10 +14,12 @@ go build -o bin/labsnmp ./cmd/labsnmp
 ./bin/labsnmp version
 ```
 
-`validate` and `serve` are not implemented yet. After those waves land:
+`validate` and `canonicalize` load a fail-closed `labsnmp.dev/v1alpha1`
+document. `serve` is not implemented yet.
 
 ```
 ./bin/labsnmp validate --config testdata/config/valid/full.yaml
+./bin/labsnmp canonicalize --config testdata/config/valid/full.yaml
 ./bin/labsnmp serve --config testdata/config/valid/full.yaml \
   --snmp-listen=:1161 --trap-listen=:1162 --management-listen=:8088
 ```

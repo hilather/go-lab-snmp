@@ -77,13 +77,15 @@ Never call `settimeofday`. Engine time is process clock.
 See [03-mib-and-trap-store.md](03-mib-and-trap-store.md) and
 [02-snmp-semantics.md](02-snmp-semantics.md).
 
-Community `name` is the community string. Optional `secretFile`
-replaces `name` as the wire string (file contents trimmed). Mixing
-both in one row is a validate error.
+Community `name` is a required unique DNS-label **row id**
+(REST/MCP/UI). `communityFile` is required. The wire community octet
+string is the trimmed file contents. Inline `community:`, using `name`
+as the wire string, or `secretFile` on a community row is an unknown
+or validate error.
 
 At least one community **or** one user is required if the agent is
-enabled. Each `map` reference must exist. Community strings must be
-unique after secret resolution. User names must be unique.
+enabled. Each `map` reference must exist. Community **wire strings**
+must be unique after file resolution. User names must be unique.
 
 v3 user:
 
