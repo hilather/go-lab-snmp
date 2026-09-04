@@ -4,6 +4,7 @@
 
 ### Added
 
+- First-party SNMPv1/v2c/v3 BER codec (`internal/snmpwire`): Get/GetNext/GetBulk/Set/Response/Trap-v1/SNMPv2-Trap/Inform/Report, v3 ciphertext as OCTET STRING, request-id preservation, max-message cap, packet goldens, and decoder fuzz (WIRE-001).
 - Fail-closed `labsnmp.dev/v1alpha1` YAML: KnownFields, `communityFile`-required communities, `labsnmp validate` / `canonicalize`, and config fixtures (CFG-001).
 - ADR 0015: community strings are file refs; `name` is a DNS-label row id.
 - Repository foundation: `labsnmp version`, Makefile, CI, living docs, and package stubs (FND-001).

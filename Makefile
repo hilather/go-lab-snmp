@@ -64,7 +64,13 @@ test-changelog:
 test-config-compat:
 	$(GO) test ./internal/config -run TestConfigCompat -count=1
 
-generate verify-generated test-fuzz-smoke test-parity \
+test-fuzz-smoke:
+	$(GO) test ./scripts/checkdocs -run TestFuzzCorporaPresent -count=1
+	$(GO) test ./internal/buildinfo -fuzz=FuzzInfoString -fuzztime=5s -count=1
+	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=5s -count=1
+	$(GO) test ./internal/snmpwire -fuzz=FuzzDecode -fuzztime=10s -count=1
+
+generate verify-generated test-parity \
 test-container security-scan web-install web-test web-build web-embed:
 	@echo 'make $@: not implemented' >&2
 	@false

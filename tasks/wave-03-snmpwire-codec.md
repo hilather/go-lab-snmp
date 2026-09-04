@@ -1,6 +1,6 @@
 # WIRE-001 — First-party SNMP codec
 
-Status: not-started
+Status: done
 Depends: CFG-001
 Owns: internal/snmpwire, testdata/packets
 

@@ -154,6 +154,8 @@ func Check(root string) error {
 // RequiredFuzzCorpora are seed directories. Deleting them must fail closed.
 var RequiredFuzzCorpora = []string{
 	"internal/buildinfo/testdata/fuzz/FuzzInfoString",
+	"internal/config/testdata/fuzz/FuzzDecode",
+	"internal/snmpwire/testdata/fuzz/FuzzDecode",
 }
 
 func checkFuzzCorpora(root string) error {
