@@ -65,6 +65,30 @@ func TestCheckReportsMissingMetadata(t *testing.T) {
 	}
 }
 
+func TestCheckFailsWhenFuzzCorporaMissing(t *testing.T) {
+	dir := t.TempDir()
+	for _, rel := range RequiredRootDocs {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := "# x\n"
+		if strings.HasPrefix(rel, "docs/") && strings.HasSuffix(rel, ".md") && !strings.Contains(rel, "adr/") && rel != "docs/implementation-design.md" && rel != "docs/README.md" && rel != "docs/known-limitations.md" {
+			body = "# x\n\nStatus: Proposed\nOwners: Test\nLast reviewed: 2026-08-30\n\nNAT collision userland-proxy\n"
+		} else if strings.HasPrefix(rel, "docs/") {
+			body = "# x\n\nNAT collision userland-proxy\n"
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Check(dir); err == nil {
+		t.Fatal("expected missing fuzz corpora")
+	} else if !strings.Contains(err.Error(), "fuzz corpora missing") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestFuzzCorporaPresent(t *testing.T) {
 	root, err := repoRoot()
 	if err != nil {

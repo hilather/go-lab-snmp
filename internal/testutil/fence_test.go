@@ -20,6 +20,16 @@ var productionDialPackages = []string{
 	"internal/app",
 }
 
+// Data-plane packages must not import control, web, or net/http.
+var productionFencePackages = []string{
+	"internal/snmpwire",
+	"internal/mibtree",
+	"internal/usm",
+	"internal/snmpagent",
+	"internal/snmpsink",
+	"internal/store",
+}
+
 var forbiddenModules = []string{
 	"github.com/gosnmp/gosnmp",
 	"github.com/sleepinggenius2/gosmi",
@@ -96,12 +106,22 @@ func TestForbiddenModules(t *testing.T) {
 	}
 }
 
+func requirePackageDir(t *testing.T, root, rel string) string {
+	t.Helper()
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("%s: missing production package: %v", rel, err)
+		return ""
+	}
+	return dir
+}
+
 func TestNoDialOnProductionPackages(t *testing.T) {
 	root := moduleRoot(t)
 	fset := token.NewFileSet()
 	for _, rel := range productionDialPackages {
-		dir := filepath.Join(root, filepath.FromSlash(rel))
-		if _, err := os.Stat(dir); err != nil {
+		dir := requirePackageDir(t, root, rel)
+		if dir == "" {
 			continue
 		}
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -149,6 +169,53 @@ func TestNoDialOnProductionPackages(t *testing.T) {
 				}
 				return true
 			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestNoControlWebHTTPImports(t *testing.T) {
+	root := moduleRoot(t)
+	fset := token.NewFileSet()
+	forbidden := []string{
+		"github.com/hilather/go-lab-snmp/internal/control",
+		"github.com/hilather/go-lab-snmp/internal/web",
+		"net/http",
+	}
+	for _, rel := range productionFencePackages {
+		dir := requirePackageDir(t, root, rel)
+		if dir == "" {
+			continue
+		}
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if d.Name() == "testdata" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+			if err != nil {
+				return err
+			}
+			fileRel, _ := filepath.Rel(root, path)
+			for _, imp := range f.Imports {
+				ipath := strings.Trim(imp.Path.Value, `"`)
+				for _, bad := range forbidden {
+					if ipath == bad || strings.HasPrefix(ipath, bad+"/") {
+						t.Errorf("%s imports forbidden package %s", fileRel, ipath)
+					}
+				}
+			}
 			return nil
 		})
 		if err != nil {

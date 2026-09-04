@@ -7,11 +7,16 @@ the community or v3 user.
 If you want to **implement** it, read `AGENTS.md` then take a wave
 from `tasks/00-program-board.md`. Do not invent capability IDs.
 
-## After FND-001 exists
+## Build
 
 ```
 go build -o bin/labsnmp ./cmd/labsnmp
 ./bin/labsnmp version
+```
+
+`validate` and `serve` are not implemented yet. After those waves land:
+
+```
 ./bin/labsnmp validate --config testdata/config/valid/full.yaml
 ./bin/labsnmp serve --config testdata/config/valid/full.yaml \
   --snmp-listen=:1161 --trap-listen=:1162 --management-listen=:8088

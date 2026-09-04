@@ -22,6 +22,6 @@ func TestCommittedDistPlaceholder(t *testing.T) {
 
 func TestUIEnabledOff(t *testing.T) {
 	if UIEnabled {
-		t.Fatal("UIEnabled must stay false until UI-001")
+		t.Fatal("UIEnabled must be false")
 	}
 }

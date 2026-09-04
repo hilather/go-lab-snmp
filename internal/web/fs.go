@@ -8,7 +8,8 @@ import (
 //go:embed all:dist
 var dist embed.FS
 
-// UIEnabled is false until UI-001 replaces dist with a real Vite tree.
+// UIEnabled gates serving the embedded SPA. The management server
+// serves the embed only when this is true.
 const UIEnabled = false
 
 // Files returns the committed dist tree. go:embed cannot target an empty directory.

@@ -144,10 +144,8 @@ func Check(root string) error {
 	if err := checkRequiredPhrases(root); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(root, "internal", "config", "fuzz_test.go")); err == nil {
-		if err := checkFuzzCorpora(root); err != nil {
-			return err
-		}
+	if err := checkFuzzCorpora(root); err != nil {
+		return err
 	}
 	return checkExampleYAML(root)
 }

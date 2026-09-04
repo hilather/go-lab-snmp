@@ -1,6 +1,6 @@
 # LabSNMP continuous integration.
 #
-# FND-001 jobs: format, lint, unit, race, documentation, changelog.
+# Required jobs: format, lint, unit, race, documentation, changelog.
 # Do not add a CI job that calls a fail-closed Make placeholder.
 
 name: CI
