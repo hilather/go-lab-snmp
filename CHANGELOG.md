@@ -4,6 +4,7 @@
 
 ### Added
 
+- Lex-ordered OID instance tree: GET, GETNEXT, GETBULK, and SET-check (MAP-001).
 - Fail-closed `labsnmp.dev/v1alpha1` YAML: KnownFields, `communityFile`-required communities, `labsnmp validate` / `canonicalize`, and config fixtures (CFG-001).
 - ADR 0015: community strings are file refs; `name` is a DNS-label row id.
 - Repository foundation: `labsnmp version`, Makefile, CI, living docs, and package stubs (FND-001).

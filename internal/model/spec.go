@@ -179,6 +179,10 @@ type ObjectSpec struct {
 	Size      *RangeSpec `json:"size,omitempty"`
 }
 
+// Object is an instance leaf. YAML decode uses ObjectSpec; mibtree.Compile
+// takes the same fields.
+type Object = ObjectSpec
+
 // RangeSpec is inclusive min/max for integer types or octet length.
 type RangeSpec struct {
 	Min int64 `json:"min"`
