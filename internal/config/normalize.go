@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"time"
@@ -30,9 +31,14 @@ func cloneState(st *model.State) (*model.State, error) {
 	if err != nil {
 		return nil, domainerr.Internal("clone marshal: " + err.Error())
 	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	var out model.State
-	if err := json.Unmarshal(b, &out); err != nil {
+	if err := dec.Decode(&out); err != nil {
 		return nil, domainerr.Internal("clone unmarshal: " + err.Error())
+	}
+	if vs := coerceObjectValues(&out); len(vs) > 0 {
+		return nil, domainerr.ValidationFailed("invalid object values", vs...)
 	}
 	return &out, nil
 }

@@ -87,6 +87,9 @@ At least one community **or** one user is required if the agent is
 enabled. Each `map` reference must exist. Community **wire strings**
 must be unique after file resolution. User names must be unique.
 
+`valueFrom: uptime` is the only dynamic source. The leaf must be
+`type: timeTicks` and `access: read` (or omitted). It is never writable.
+
 v3 user:
 
 ```yaml

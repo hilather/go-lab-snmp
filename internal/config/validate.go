@@ -389,6 +389,22 @@ func validateMaps(maps []model.MapSpec, vs *[]domainerr.FieldViolation) map[stri
 					Message: "valueFrom must be uptime",
 				})
 			}
+			if vf == model.ValueFromUptime {
+				if o.Type != model.TypeTimeTicks {
+					*vs = append(*vs, domainerr.FieldViolation{
+						Path:    op + ".type",
+						Code:    violationInvalidValue,
+						Message: "valueFrom uptime requires type timeTicks",
+					})
+				}
+				if o.Access != "" && o.Access != model.AccessRead {
+					*vs = append(*vs, domainerr.FieldViolation{
+						Path:    op + ".access",
+						Code:    violationInvalidValue,
+						Message: "valueFrom uptime requires access read",
+					})
+				}
+			}
 			if vf == "" && o.Value == nil && o.Type != model.TypeNull {
 				*vs = append(*vs, domainerr.FieldViolation{Path: op + ".value", Code: violationRequired, Message: "value is required unless valueFrom is set"})
 			}

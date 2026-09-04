@@ -12,25 +12,14 @@ func readSecretFile(path, baseDir string) ([]byte, error) {
 	if path == "" {
 		return nil, os.ErrNotExist
 	}
+	if filepath.IsAbs(path) {
+		return os.ReadFile(path)
+	}
 	candidates := []string{path}
-	if !filepath.IsAbs(path) {
-		if baseDir != "" {
-			rel := filepath.Join(baseDir, path)
-			if rel != path {
-				candidates = append(candidates, rel)
-			}
-			if root, err := findModuleRootFrom(baseDir); err == nil {
-				rel := filepath.Join(root, path)
-				if rel != path {
-					candidates = append(candidates, rel)
-				}
-			}
-		}
-		if root, err := findModuleRoot(); err == nil {
-			rel := filepath.Join(root, path)
-			if rel != path {
-				candidates = append(candidates, rel)
-			}
+	if baseDir != "" {
+		rel := filepath.Join(baseDir, path)
+		if rel != path {
+			candidates = append(candidates, rel)
 		}
 	}
 	var firstErr error

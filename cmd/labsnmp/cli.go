@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/domainerr"
 )
 
 func requireConfigFlag(args []string, name string, stderr io.Writer) (path string, err error) {
@@ -30,7 +31,7 @@ func validateCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	st, warns, err := config.LoadFileWithWarnings(path)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "labsnmp validate: %v\n", err)
+		printDomainError(stderr, "labsnmp validate", err)
 		return 2
 	}
 	for _, w := range warns {
@@ -38,7 +39,7 @@ func validateCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	rev, err := config.Revision(st)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "labsnmp validate: %v\n", err)
+		printDomainError(stderr, "labsnmp validate", err)
 		return 2
 	}
 	_, _ = fmt.Fprintf(stdout, "ok revision=%s\n", rev)
@@ -59,7 +60,7 @@ func canonicalizeCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	st, err := config.LoadFile(*path)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "labsnmp canonicalize: %v\n", err)
+		printDomainError(stderr, "labsnmp canonicalize", err)
 		return 2
 	}
 	var body []byte
@@ -73,7 +74,7 @@ func canonicalizeCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "labsnmp canonicalize: %v\n", err)
+		printDomainError(stderr, "labsnmp canonicalize", err)
 		return 2
 	}
 	_, _ = stdout.Write(body)
@@ -81,4 +82,20 @@ func canonicalizeCmd(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stdout)
 	}
 	return 0
+}
+
+func printDomainError(stderr io.Writer, prefix string, err error) {
+	de, ok := domainerr.As(err)
+	if !ok {
+		_, _ = fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
+		return
+	}
+	_, _ = fmt.Fprintf(stderr, "%s: %v\n", prefix, de)
+	for _, v := range de.FieldViolations {
+		path := v.Path
+		if path == "" {
+			path = "."
+		}
+		_, _ = fmt.Fprintf(stderr, "  %s: %s: %s\n", path, v.Code, v.Message)
+	}
 }

@@ -88,6 +88,11 @@ spec:
           type: octetString
           access: read
           value: "private-horizon"
+        - oid: "10.20.0.3.4.1.99999.2.0"
+          name: labCounter64
+          type: counter64
+          access: read
+          value: 18446744073709551615
         - oid: "10.20.0.3.10.20.0.4.0"
           name: sysUpTime
           type: timeTicks

@@ -108,7 +108,7 @@ func toYAMLNode(v any) *yaml.Node {
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: x.String()}
 	case float64:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!float", Value: strconv.FormatFloat(x, 'g', -1, 64)}
-	case int, int64:
+	case int, int64, uint, uint32, uint64:
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(x)}
 	case []any:
 		n := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}

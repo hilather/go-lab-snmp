@@ -113,10 +113,14 @@ func decodeRaw(raw any) (*model.State, error) {
 			domainerr.FieldViolation{Path: "", Code: violationInvalidValue, Message: err.Error()})
 	}
 	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	dec.DisallowUnknownFields()
 	var st model.State
 	if err := dec.Decode(&st); err != nil {
 		return nil, mapJSONDecodeError(err)
+	}
+	if vs := coerceObjectValues(&st); len(vs) > 0 {
+		return nil, domainerr.ValidationFailed("invalid object values", vs...)
 	}
 	return &st, nil
 }

@@ -95,6 +95,7 @@ func TestUnimplementedCommands(t *testing.T) {
 }
 
 func TestValidateAndCanonicalize(t *testing.T) {
+	t.Chdir(repoRoot(t))
 	path := filepath.Join(repoRoot(t), "testdata/config/valid/full.yaml")
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"labsnmp", "validate", "--config", path}, &stdout, &stderr)
@@ -128,10 +129,15 @@ func TestValidateRequiresConfig(t *testing.T) {
 }
 
 func TestValidateInvalidExitsTwo(t *testing.T) {
+	t.Chdir(repoRoot(t))
 	path := filepath.Join(repoRoot(t), "testdata/config/invalid/unknown-field.yaml")
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"labsnmp", "validate", "--config", path}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "spec.foo") || !strings.Contains(out, "unknown_field") {
+		t.Fatalf("validate stderr missing field path: %q", out)
 	}
 }

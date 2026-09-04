@@ -14,3 +14,6 @@
 - Community wire string is trimmed `communityFile` contents (K4). Inline `community:` / `secretFile` on communities reject.
 - `valueFrom` is `uptime` (ADR 0011), not `processUptime`.
 - START-HERE.md working path includes `labsnmp validate --config testdata/config/valid/full.yaml`.
+- `labsnmp validate` prints field-violation paths. Map object integers stay
+  integer-typed (including `counter64` above 2^53). `valueFrom: uptime`
+  requires `type: timeTicks` and `access: read`.
