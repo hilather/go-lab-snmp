@@ -158,6 +158,14 @@ func Boot(ctx context.Context, opts Options) (*App, error) {
 	return New(opts), nil
 }
 
+// BootstrapDir is the directory of the bootstrap YAML (secretFile fallback).
+func (s *App) BootstrapDir() string {
+	if s == nil || s.bootstrapPath == "" {
+		return ""
+	}
+	return filepath.Dir(s.bootstrapPath)
+}
+
 // Snapshots is the live config pointer the agent re-reads per packet.
 func (s *App) Snapshots() *snapshot.Store {
 	if s == nil {

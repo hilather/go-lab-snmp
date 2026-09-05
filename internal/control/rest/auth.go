@@ -57,6 +57,25 @@ func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
 	return actorOf(p, "rest"), nil
 }
 
+// authenticateBearer requires Authorization. Mounts (MCP) must not accept cookie-only.
+func (s *Server) authenticateBearer(r *http.Request) (app.Actor, error) {
+	if s.cfg.Auth == nil {
+		return app.Actor{}, domainerr.Unauthenticated("authentication required")
+	}
+	hdr := strings.TrimSpace(r.Header.Get("Authorization"))
+	if hdr == "" {
+		return app.Actor{}, domainerr.Unauthenticated("authentication required")
+	}
+	p, err := s.cfg.Auth.Authenticate(auth.Request{
+		Authorization: hdr,
+		RemoteAddr:    r.RemoteAddr,
+	})
+	if err != nil {
+		return app.Actor{}, err
+	}
+	return actorOf(p, "rest"), nil
+}
+
 func (s *Server) authorize(r *http.Request, actor app.Actor, cap capabilities.Capability) error {
 	if s.cfg.Auth == nil {
 		return domainerr.Unauthenticated("authentication required")

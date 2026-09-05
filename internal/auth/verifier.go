@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -37,8 +38,14 @@ type Request struct {
 	RemoteAddr    string
 }
 
-// FromSpec compiles spec.auth. Missing secret files fail closed.
+// FromSpec compiles spec.auth against the process working directory.
 func FromSpec(spec model.AuthSpec) (*Verifier, error) {
+	return FromSpecAt(spec, "")
+}
+
+// FromSpecAt compiles spec.auth. Relative secretFile paths try CWD then baseDir
+// (the bootstrap YAML directory), matching config.LoadFile.
+func FromSpecAt(spec model.AuthSpec, baseDir string) (*Verifier, error) {
 	mode := strings.TrimSpace(spec.Mode)
 	if mode == "" {
 		mode = model.MgmtAuthBearer
@@ -61,7 +68,7 @@ func FromSpec(spec model.AuthSpec) (*Verifier, error) {
 			return nil, domainerr.ValidationFailed("duplicate token id",
 				domainerr.FieldViolation{Path: indexPath("spec.auth.tokens", i) + ".id", Code: "duplicate_id", Message: "duplicate token id"})
 		}
-		raw, err := readSecretFile(tok.SecretFile)
+		raw, err := readSecretFile(tok.SecretFile, baseDir)
 		if err != nil {
 			return nil, domainerr.ValidationFailed("token secret is unavailable",
 				domainerr.FieldViolation{Path: indexPath("spec.auth.tokens", i) + ".secretFile", Code: "unresolved_reference", Message: "token secret file does not resolve"})
@@ -77,7 +84,7 @@ func FromSpec(spec model.AuthSpec) (*Verifier, error) {
 			return nil, domainerr.ValidationFailed("duplicate token value",
 				domainerr.FieldViolation{Path: indexPath("spec.auth.tokens", i) + ".secretFile", Code: "duplicate_id", Message: "token value matches " + other})
 		}
-		if tok.Role != "" && !model.KnownRole(tok.Role) {
+		if !model.KnownRole(tok.Role) {
 			return nil, domainerr.ValidationFailed("unknown role",
 				domainerr.FieldViolation{Path: indexPath("spec.auth.tokens", i) + ".role", Code: "invalid_value", Message: "role must be administrator or reader"})
 		}
@@ -88,6 +95,11 @@ func FromSpec(spec model.AuthSpec) (*Verifier, error) {
 	}
 
 	return &Verifier{mode: mode, tokens: tokens}, nil
+}
+
+// Empty is a bearer verifier with no tokens. Authenticate always 401s.
+func Empty() *Verifier {
+	return &Verifier{mode: model.MgmtAuthBearer}
 }
 
 // Static builds a bearer verifier from an in-memory secret (contract tests).
@@ -284,19 +296,42 @@ func principalOf(t storedToken) Principal {
 	}
 }
 
-func readSecretFile(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+func readSecretFile(path, baseDir string) ([]byte, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, os.ErrNotExist
 	}
-	for _, line := range strings.Split(string(b), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
+	candidates := []string{path}
+	if !filepath.IsAbs(path) && baseDir != "" {
+		rel := filepath.Join(baseDir, path)
+		if rel != path {
+			candidates = append(candidates, rel)
+		}
+	}
+	var firstErr error
+	for _, c := range candidates {
+		b, err := os.ReadFile(c)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
-		return []byte(line), nil
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			return []byte(line), nil
+		}
+		if firstErr == nil {
+			firstErr = os.ErrInvalid
+		}
 	}
-	return nil, os.ErrInvalid
+	if firstErr == nil {
+		return nil, os.ErrNotExist
+	}
+	return nil, firstErr
 }
 
 func zero(b []byte) {

@@ -108,3 +108,54 @@ func TestUnknownModeRejected(t *testing.T) {
 		t.Fatal("basic")
 	}
 }
+
+func TestFromSpecEmptyRoleRejected(t *testing.T) {
+	dir := t.TempDir()
+	okPath := filepath.Join(dir, "ok")
+	if err := os.WriteFile(okPath, []byte(testSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := FromSpec(model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", SecretFile: okPath,
+		}},
+	})
+	if err == nil {
+		t.Fatal("empty role must fail closed")
+	}
+}
+
+func TestFromSpecAtResolvesBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	name := "labsnmp-fromspec-token"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(testSecret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := model.AuthSpec{
+		Mode: model.MgmtAuthBearer,
+		Tokens: []model.TokenSpec{{
+			ID: "admin", Role: model.RoleAdministrator, SecretFile: name,
+		}},
+	}
+	if _, err := FromSpec(spec); err == nil {
+		t.Fatal("CWD-only must not see bootstrap-dir secret")
+	}
+	v, err := FromSpecAt(spec, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.Authenticate(Request{Authorization: "Bearer " + testSecret}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEmptyDenies(t *testing.T) {
+	v := Empty()
+	if err := v.RequireListen(); err == nil {
+		t.Fatal("empty must refuse listen")
+	}
+	if _, err := v.Authenticate(Request{Authorization: "Bearer " + testSecret}); err == nil {
+		t.Fatal("empty must 401")
+	}
+}

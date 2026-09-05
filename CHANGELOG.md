@@ -19,6 +19,7 @@
 
 ### Changed
 
+- Apply/reset reloads bearer identity, `allowedOrigins`, and `metrics.publicPath` from the live snapshot. Unreadable or empty `spec.auth` drops the previous verifier instead of keeping old tokens. Token files resolve CWD then the bootstrap directory. OpenAPI documents cookie `labsnmp_session` and header `X-LabSNMP-CSRF`.
 - `GET /v1/state:export?format=json` writes the canonical document (same shape as YAML). `POST /v1/traps:wait` is capped by `spec.traps.maxWait`, not the 30s management request timeout.
 - Community wire string is trimmed `communityFile` contents (K4). Inline `community:` / `secretFile` on communities reject.
 - `valueFrom` is `uptime` (ADR 0011), not `processUptime`.

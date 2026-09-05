@@ -72,6 +72,7 @@ type Server struct {
 	rate     *limiter
 	mounts   *http.ServeMux
 
+	sec    sync.RWMutex
 	mu     sync.Mutex
 	http   *http.Server
 	ln     net.Listener
@@ -276,7 +277,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Set(headerRequestID, reqID)
 	instance := requestURNPrefix + reqID
 
-	if err := checkOrigin(r.Header.Get("Origin"), s.cfg.AllowedOrigins); err != nil {
+	if err := checkOrigin(r.Header.Get("Origin"), s.allowedOrigins()); err != nil {
 		s.writeProblem(w, r, instance, err)
 		return
 	}
@@ -353,13 +354,22 @@ func (s *Server) skipAuth(cap capabilities.Capability) bool {
 	if isHealthCap(cap) {
 		return true
 	}
-	return cap.ID == capabilities.MetricsGet && s.cfg.PublicMetrics
+	return cap.ID == capabilities.MetricsGet && s.publicMetrics()
+}
+
+func (s *Server) allowedOrigins() []string {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return append([]string(nil), s.cfg.AllowedOrigins...)
+}
+
+func (s *Server) publicMetrics() bool {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return s.cfg.PublicMetrics
 }
 
 func (s *Server) reloadAuth() {
-	if s.cfg.Auth == nil {
-		return
-	}
 	appSvc, ok := s.svc.(*app.App)
 	if !ok {
 		return
@@ -368,12 +378,17 @@ func (s *Server) reloadAuth() {
 	if snap == nil || snap.Canonical == nil {
 		return
 	}
-	next, err := auth.FromSpec(snap.Canonical.Spec.Auth)
-	if err != nil {
+	s.sec.Lock()
+	s.cfg.AllowedOrigins = append([]string(nil), snap.Canonical.Spec.Management.AllowedOrigins...)
+	s.cfg.PublicMetrics = snap.Canonical.Spec.Observability.Metrics.PublicPath
+	s.sec.Unlock()
+
+	if s.cfg.Auth == nil {
 		return
 	}
-	if err := next.RequireListen(); err != nil {
-		return
+	next, err := auth.FromSpecAt(snap.Canonical.Spec.Auth, appSvc.BootstrapDir())
+	if err != nil {
+		next = auth.Empty()
 	}
 	changed := !s.cfg.Auth.Equivalent(next)
 	s.cfg.Auth.Replace(next)
@@ -391,6 +406,10 @@ func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance 
 		return false
 	}
 	if err := s.rate.allow(r.RemoteAddr); err != nil {
+		s.writeProblem(w, r, instance, err)
+		return true
+	}
+	if _, err := s.authenticateBearer(r); err != nil {
 		s.writeProblem(w, r, instance, err)
 		return true
 	}

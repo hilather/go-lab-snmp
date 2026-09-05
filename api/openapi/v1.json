@@ -4,6 +4,11 @@
       "bearerAuth": {
         "scheme": "bearer",
         "type": "http"
+      },
+      "cookieAuth": {
+        "in": "cookie",
+        "name": "labsnmp_session",
+        "type": "apiKey"
       }
     }
   },
@@ -49,6 +54,17 @@
       "post": {
         "description": "Apply operations. expectedRevision is required.",
         "operationId": "changes.apply",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Apply",
         "tags": [
           "changes.apply"
@@ -59,6 +75,17 @@
       "post": {
         "description": "Dry-run operations against the active snapshot.",
         "operationId": "changes.plan",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Plan",
         "tags": [
           "changes.plan"
@@ -131,6 +158,17 @@
       "post": {
         "description": "Read one oid from a named map plus overlay.",
         "operationId": "oids.get",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Get OID",
         "tags": [
           "oids.get"
@@ -141,6 +179,17 @@
       "post": {
         "description": "Write one overlay value. Same overlay as SNMP SET. Body is a single {oid, value}.",
         "operationId": "oids.set",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Set OID",
         "tags": [
           "oids.set"
@@ -151,6 +200,17 @@
       "post": {
         "description": "Simulate GET/GETNEXT/GETBULK against a named map without sending a datagram.",
         "operationId": "maps.query",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Query map",
         "tags": [
           "maps.query"
@@ -201,6 +261,17 @@
       "delete": {
         "description": "Clear the operator UI session cookie.",
         "operationId": "session.delete",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Delete session",
         "tags": [
           "session.delete"
@@ -217,6 +288,17 @@
       "post": {
         "description": "Cookie + CSRF session for the operator UI. Accepts bearer.",
         "operationId": "session.create",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Create session",
         "tags": [
           "session.create"
@@ -247,6 +329,17 @@
       "post": {
         "description": "Reread the bootstrap mount, drop overlay, wipe traps and queries, and swap. Never writes the file.",
         "operationId": "state.reset",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Reset",
         "tags": [
           "state.reset"
@@ -257,6 +350,17 @@
       "post": {
         "description": "Validate a candidate document and/or operations without writing.",
         "operationId": "state.validate",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Validate",
         "tags": [
           "state.validate"
@@ -317,6 +421,17 @@
       "post": {
         "description": "Wipe the trap inbox. Waiters receive store_wiped.",
         "operationId": "traps.clear",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Clear traps",
         "tags": [
           "traps.clear"
@@ -327,6 +442,17 @@
       "post": {
         "description": "Wait for an existing or later matching trap. wait_timeout or store_wiped.",
         "operationId": "traps.wait",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "summary": "Wait traps",
         "tags": [
           "traps.wait"
@@ -357,6 +483,9 @@
   "security": [
     {
       "bearerAuth": []
+    },
+    {
+      "cookieAuth": []
     }
   ],
   "servers": [

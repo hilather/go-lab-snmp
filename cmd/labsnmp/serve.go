@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -181,7 +182,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var restSrv *rest.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	if !mgmtOff {
-		v, vErr := auth.FromSpec(st.Spec.Auth)
+		v, vErr := auth.FromSpecAt(st.Spec.Auth, filepath.Dir(flags.Config))
 		if vErr != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: auth: %v\n", vErr)
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)

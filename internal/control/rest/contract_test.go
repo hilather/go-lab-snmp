@@ -1,14 +1,18 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
@@ -93,8 +97,9 @@ func TestCSRFRequiredOnCookieMutation(t *testing.T) {
 			cookie = c.Value
 		}
 	}
-	if cookie == "" {
-		t.Fatal("cookie")
+	var created sessionCreateJSON
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil || cookie == "" || created.CSRF == "" {
+		t.Fatalf("cookie %q csrf %v err %v", cookie, created, err)
 	}
 	req = httptest.NewRequest(http.MethodPost, "/v1/state:reset", strings.NewReader(`{"reason":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -112,6 +117,15 @@ func TestCSRFRequiredOnCookieMutation(t *testing.T) {
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("bad csrf %d", w.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/state:reset", strings.NewReader(`{"reason":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.CSRFHeader, created.CSRF)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("csrf ok want 200 got %d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -205,6 +219,34 @@ func TestOriginExactMatch(t *testing.T) {
 	}
 }
 
+func TestOriginsFollowReset(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.sec.Lock()
+	s.cfg.AllowedOrigins = []string{"https://lab.example"}
+	s.sec.Unlock()
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "https://lab.example")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("allowlisted %d %s", w.Code, w.Body.String())
+	}
+	resp := doJSON(t, s, http.MethodPost, "/v1/state:reset", `{"reason":"origins"}`)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reset %d %s", resp.StatusCode, b)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "https://lab.example")
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("reset must drop origin, got %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestPublicMetricsSkipsAuth(t *testing.T) {
 	svc := bootTestApp(t)
 	s, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator), PublicMetrics: true})
@@ -226,6 +268,124 @@ func TestPublicMetricsSkipsAuth(t *testing.T) {
 	s2.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("private metrics %d", w.Code)
+	}
+}
+
+func TestPublicMetricsFollowsApply(t *testing.T) {
+	s, _ := newTestServer(t)
+	s.sec.Lock()
+	s.cfg.PublicMetrics = true
+	s.sec.Unlock()
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("publicPath metrics must not 401")
+	}
+	st := doJSON(t, s, http.MethodGet, "/v1/state", "")
+	if st.StatusCode != http.StatusOK {
+		t.Fatal(st.StatusCode)
+	}
+	rev, _ := decodeMap(t, st)["runtimeRevision"].(string)
+	body := `{"expectedRevision":"` + rev + `","idempotencyKey":"obs-public","operations":[{"op":"replaceAdmission","admission":{"allowClientCidrs":["127.0.0.0/8","::1/128"],"maxDatagramsPerSec":1000,"maxDatagramsPerIP":100}}]}`
+	resp := doJSON(t, s, http.MethodPost, "/v1/changes:apply", body)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("apply %d %s", resp.StatusCode, b)
+	}
+	_ = resp.Body.Close()
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("apply must copy publicPath false, got %d", w.Code)
+	}
+}
+
+func TestMountsRequireBearer(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:    svc,
+		RatePerSec: -1,
+		Auth:       auth.Static(testToken, "admin", model.RoleAdministrator),
+		Mounts:     map[string]http.Handler{"/mcp": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("mount without bearer %d", w.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/session", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("session %d", w.Code)
+	}
+	var cookie string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.CookieName {
+			cookie = c.Value
+		}
+	}
+	req = httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("cookie-only mount %d", w.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("bearer mount %d", w.Code)
+	}
+}
+
+func TestReloadAuthDropsEmptyTokens(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", "full.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "labsnmp.yaml")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	s, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", "defaults.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, empty, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resp := doJSON(t, s, http.MethodPost, "/v1/state:reset", `{"reason":"drop-tokens"}`)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reset %d %s", resp.StatusCode, b)
+	}
+	_ = resp.Body.Close()
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("empty spec.auth must drop old secrets, got %d %s", w.Code, w.Body.String())
 	}
 }
 

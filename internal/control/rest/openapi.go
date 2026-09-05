@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 )
 
@@ -31,9 +32,13 @@ func RenderOpenAPI() ([]byte, error) {
 		"components": map[string]any{
 			"securitySchemes": map[string]any{
 				"bearerAuth": map[string]any{"type": "http", "scheme": "bearer"},
+				"cookieAuth": map[string]any{"type": "apiKey", "in": "cookie", "name": auth.CookieName},
 			},
 		},
-		"security": []any{map[string]any{"bearerAuth": []any{}}},
+		"security": []any{
+			map[string]any{"bearerAuth": []any{}},
+			map[string]any{"cookieAuth": []any{}},
+		},
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -63,6 +68,17 @@ func openAPIPaths() map[string]any {
 			}
 			if isHealthCap(c) {
 				op["security"] = []any{}
+			}
+			if auth.UnsafeMethod(b.Method) {
+				op["parameters"] = []any{
+					map[string]any{
+						"name":        auth.CSRFHeader,
+						"in":          "header",
+						"required":    false,
+						"description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+						"schema":      map[string]any{"type": "string"},
+					},
+				}
 			}
 			item[strings.ToLower(b.Method)] = op
 			paths[b.Path] = item
