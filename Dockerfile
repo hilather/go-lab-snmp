@@ -48,7 +48,7 @@ COPY --from=build /out/labsnmp /labsnmp
 COPY --from=build /out/LICENSE /LICENSE
 
 USER 65532:65532
-EXPOSE 161/udp 162/udp 8088/tcp
+EXPOSE 161/udp 162/udp 161/tcp 162/tcp 8088/tcp
 WORKDIR /
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=3s --retries=3 \

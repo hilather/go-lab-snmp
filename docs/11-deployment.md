@@ -16,7 +16,7 @@ route requires bearer or `labsnmp_session`.
 ```
 CMD ["serve", "--config=/etc/labsnmp/config.yaml", "--management-listen=:8088"]
 HEALTHCHECK CMD ["/labsnmp", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
-EXPOSE 161/udp 162/udp 8088/tcp
+EXPOSE 161/udp 162/udp 161/tcp 162/tcp 8088/tcp
 USER 65532:65532
 ```
 
@@ -27,8 +27,11 @@ Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
 `internal/web/dist`. `GET /` is 200 SPA HTML when `spec.ui.enabled`
 is true; 404 `application/problem+json` when false. Tag-gate + GHCR
 publish is `.github/workflows/release.yml` on `v*` after required CI
-is green. TLS-001 stays deferred (`dtls.enabled` / `tcp.enabled`
-true still reject).
+is green. Image CMD is unchanged (UDP + management). Do not
+`EXPOSE 10161/udp`: in-container DTLS is `:10161` (IANA snmp-dtls);
+host residual **10161** is UDP 161 ([ADR 0014](adr/0014-host-residual-10161-10162.md)
+unchanged). RFC 3430 TCP and DTLS 1.2 record layer bind when YAML
+enables them; smoke compose stays UDP `:1161`/`:1162`.
 
 ## Appliance smoke vs integrator
 
@@ -59,13 +62,35 @@ collision**). LabSNMP keys views by community/user, not client IP, so
 split-horizon still holds. Compose-network sources remain reliable
 without turning `userland-proxy` off.
 
+Optional dual-protocol publish (same residual **number** as UDP 161;
+only useful if `tcp.enabled`). There is no `LABSNMP_DTLS_PORT`.
+DTLS host map is **2161**, not residual 10161:
+
+```yaml
+ports:
+  - "${LABSNMP_AGENT_PORT:-10161}:161/udp"
+  - "${LABSNMP_AGENT_PORT:-10161}:161/tcp"   # only useful if tcp.enabled
+# DTLS (copy-paste; do not confuse with residual 10161):
+# - "2161:10161/udp"
+# - "2162:10162/udp"
+```
+
+Appliance smoke does **not** enable TCP/DTLS.
+
 ## Serve flags
 
 | Flag | Default | Behavior |
 |---|---|---|
 | `--config` | required | bootstrap path |
-| `--snmp-listen` | empty → YAML `:161` | `off` disables agent |
-| `--trap-listen` | empty → YAML `:162` | `off` disables trap |
+| `--snmp-listen` | empty → YAML `:161` | `off` disables agent UDP. Legal if agent TCP or agent DTLS will bind. |
+| `--trap-listen` | empty → YAML `:162` | `off` disables trap UDP |
+| `--dtls-listen` | empty → YAML `:10161` when `dtls.enabled` | address or `off`; `off` disables agent DTLS |
+| `--dtls-trap-listen` | empty → YAML `:10162` when `dtls.enabled` | address or `off`; `off` disables trap DTLS |
 | `--management-listen` | **off** | YAML `management.address` does not bind unless this flag is an address. Image CMD `:8088`. |
 | `--shutdown-timeout` | 10s | drain |
 | `--pid-file` | empty | write pid after binds; write failure shuts down and exits 1; unlinked on shutdown |
+
+There is no `--tcp-listen`. TCP addresses come from YAML `tcp.address` /
+`tcp.trapsAddress` (inherit the effective UDP host:port when that UDP
+listener is on). Trap-only remains illegal. Bind failure of any
+enabled data-plane listener is process exit 1.

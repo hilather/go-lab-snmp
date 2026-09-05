@@ -40,8 +40,11 @@ func TestDockerfileContract(t *testing.T) {
 	if !strings.Contains(s, "/v1/health/ready") {
 		t.Fatal("HEALTHCHECK must hit /v1/health/ready")
 	}
-	if !strings.Contains(s, "EXPOSE 161/udp 162/udp 8088/tcp") {
-		t.Fatal("Dockerfile must EXPOSE 161/udp 162/udp 8088/tcp")
+	if !strings.Contains(s, "EXPOSE 161/udp 162/udp 161/tcp 162/tcp 8088/tcp") {
+		t.Fatal("Dockerfile must EXPOSE 161/udp 162/udp 161/tcp 162/tcp 8088/tcp")
+	}
+	if strings.Contains(s, "10161") {
+		t.Fatal("Dockerfile must not EXPOSE 10161")
 	}
 }
 
@@ -76,6 +79,12 @@ func TestComposeSmokeContract(t *testing.T) {
 	}
 	if strings.Contains(s, "10161") || strings.Contains(s, "10162") {
 		t.Fatal("compose.smoke.yaml uses :1161/:1162, not residual 10161/10162")
+	}
+	if strings.Contains(s, "dtls-listen") || strings.Contains(s, "dtls-trap") {
+		t.Fatal("compose.smoke.yaml must not enable DTLS")
+	}
+	if strings.Contains(s, "161/tcp") || strings.Contains(s, "162/tcp") {
+		t.Fatal("compose.smoke.yaml must not publish TCP")
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 )
@@ -319,10 +320,15 @@ func TestParseServeFlagsShutdownAndPID(t *testing.T) {
 	if f.ManagementListen != "off" {
 		t.Fatalf("management-listen default %q", f.ManagementListen)
 	}
+	if f.DTLSListen != "" || f.DTLSTrapListen != "" {
+		t.Fatalf("dtls flags default %q %q", f.DTLSListen, f.DTLSTrapListen)
+	}
 	f, err = parseServeFlags([]string{
 		"--config", "x.yaml",
 		"--shutdown-timeout", "3s",
 		"--pid-file", "/tmp/labsnmp.pid",
+		"--dtls-listen", "127.0.0.1:2161",
+		"--dtls-trap-listen", "off",
 	}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
@@ -332,6 +338,19 @@ func TestParseServeFlagsShutdownAndPID(t *testing.T) {
 	}
 	if f.PIDFile != "/tmp/labsnmp.pid" {
 		t.Fatalf("pid-file %q", f.PIDFile)
+	}
+	if f.DTLSListen != "127.0.0.1:2161" {
+		t.Fatalf("dtls-listen %q", f.DTLSListen)
+	}
+	if f.DTLSTrapListen != "off" {
+		t.Fatalf("dtls-trap-listen %q", f.DTLSTrapListen)
+	}
+}
+
+func TestParseServeFlagsNoTCPListen(t *testing.T) {
+	_, err := parseServeFlags([]string{"--config", "x.yaml", "--tcp-listen", ":161"}, io.Discard)
+	if err == nil {
+		t.Fatal("expected error for --tcp-listen")
 	}
 }
 
@@ -638,15 +657,284 @@ func TestResetMovesAgentPacketConn(t *testing.T) {
 	}
 }
 
+func TestDesiredListenersTCPOnly(t *testing.T) {
+	snap := &snapshot.Snapshot{
+		TCPEnabled: true,
+		TCPAddress: ":1161",
+	}
+	d := desiredListeners(serveFlags{}, snap, "")
+	if d.AgentUDP != "" {
+		t.Fatalf("udp must be off: %+v", d)
+	}
+	if d.AgentTCP != ":1161" {
+		t.Fatalf("tcp: %+v", d)
+	}
+	if d.TrapTCP != "" {
+		t.Fatalf("trap tcp must be off: %+v", d)
+	}
+}
+
+func TestDesiredListenersTCPInherit(t *testing.T) {
+	snap := &snapshot.Snapshot{
+		AgentEnabled: true,
+		AgentAddress: "127.0.0.1:1161",
+		TrapsEnabled: true,
+		TrapAddress:  "127.0.0.1:1162",
+		TCPEnabled:   true,
+	}
+	d := desiredListeners(serveFlags{SNMPListen: "127.0.0.1:2161"}, snap, "")
+	if d.AgentUDP != "127.0.0.1:2161" || d.AgentTCP != "127.0.0.1:2161" {
+		t.Fatalf("inherit flag UDP: %+v", d)
+	}
+	if d.TrapUDP != "127.0.0.1:1162" || d.TrapTCP != "127.0.0.1:1162" {
+		t.Fatalf("trap inherit: %+v", d)
+	}
+	off := desiredListeners(serveFlags{SNMPListen: "off"}, snap, "")
+	if off.AgentUDP != "" || off.AgentTCP != "" {
+		t.Fatalf("udp off and empty tcp.address: %+v", off)
+	}
+}
+
+func TestDesiredListenersDTLSFlags(t *testing.T) {
+	snap := &snapshot.Snapshot{
+		AgentEnabled:     true,
+		AgentAddress:     ":161",
+		DTLSEnabled:      true,
+		DTLSAddress:      ":10161",
+		DTLSTrapsAddress: ":10162",
+		DTLSCertFile:     "cert.pem",
+		DTLSKeyFile:      "key.pem",
+	}
+	d := desiredListeners(serveFlags{SNMPListen: "off", DTLSListen: "127.0.0.1:2161", DTLSTrapListen: "off"}, snap, "")
+	if d.AgentUDP != "" {
+		t.Fatalf("udp off: %+v", d)
+	}
+	if d.AgentDTLS != "127.0.0.1:2161" {
+		t.Fatalf("dtls flag: %+v", d)
+	}
+	if d.TrapDTLS != "" {
+		t.Fatalf("trap dtls off: %+v", d)
+	}
+	if d.DTLSCertFile != "cert.pem" || d.DTLSKeyFile != "key.pem" {
+		t.Fatalf("creds: %+v", d)
+	}
+}
+
+func TestServeUDPOffNoAgentPlaneExits(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	var stderr bytes.Buffer
+	code := serveWithContext(context.Background(), []string{
+		"--config", "testdata/config/valid/full.yaml",
+		"--snmp-listen", "off",
+		"--trap-listen", "off",
+	}, io.Discard, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no agent-plane listener will bind") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
+}
+
+func TestServeEnabledBindFailureExits(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	hold, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Close() }()
+	var stderr bytes.Buffer
+	code := serveWithContext(context.Background(), []string{
+		"--config", "testdata/config/valid/full.yaml",
+		"--snmp-listen", hold.LocalAddr().String(),
+		"--trap-listen", "off",
+	}, io.Discard, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "listen") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
+}
+
+func TestServeTCPOnlyStarts(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	tcp := freeTCPAddr(t)
+	cfg := writeBootstrap(t, func(body string) string {
+		body = strings.Replace(body, "    agent:\n      enabled: true\n      address: \":161\"",
+			"    agent:\n      enabled: false", 1)
+		body = strings.Replace(body, "    tcp:\n      enabled: false",
+			"    tcp:\n      enabled: true\n      address: \""+tcp+"\"", 1)
+		return body
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{"--config", cfg, "--trap-listen", "off"}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var tcpListen string
+	deadline := time.After(5 * time.Second)
+	for tcpListen == "" {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp snmp listen=") {
+				t.Fatalf("UDP agent must stay unbound: %q", line)
+			}
+			if strings.HasPrefix(line, "labsnmp snmp tcp listen=") {
+				tcpListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp snmp tcp listen="))
+			}
+		case code := <-errc:
+			t.Fatalf("serve exited %d", code)
+		case <-deadline:
+			t.Fatal("missing snmp tcp listen line")
+		}
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
+	c, err := net.DialTimeout("tcp", tcpListen, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snmptest.MustDecode(t, raw)
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("%+v", p)
+	}
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestServeDTLSUDPOffStarts(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	dtls := freeUDPAddr(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/dtls-enabled.yaml",
+			"--snmp-listen", "off",
+			"--trap-listen", "off",
+			"--dtls-listen", dtls,
+			"--dtls-trap-listen", "off",
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var dtlsListen string
+	deadline := time.After(5 * time.Second)
+	for dtlsListen == "" {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp snmp listen=") {
+				t.Fatalf("UDP agent must stay unbound: %q", line)
+			}
+			if strings.HasPrefix(line, "labsnmp snmp dtls listen=") {
+				dtlsListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp snmp dtls listen="))
+			}
+		case code := <-errc:
+			t.Fatalf("serve exited %d", code)
+		case <-deadline:
+			t.Fatal("missing snmp dtls listen line")
+		}
+	}
+	if dtlsListen == "" {
+		t.Fatal("empty dtls listen")
+	}
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestServeTCPBindFailureExits(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	hold, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Close() }()
+	cfg := writeBootstrap(t, func(body string) string {
+		body = strings.Replace(body, "    agent:\n      enabled: true\n      address: \":161\"",
+			"    agent:\n      enabled: false", 1)
+		body = strings.Replace(body, "    tcp:\n      enabled: false",
+			"    tcp:\n      enabled: true\n      address: \""+hold.Addr().String()+"\"", 1)
+		return body
+	})
+	var stderr bytes.Buffer
+	code := serveWithContext(context.Background(), []string{"--config", cfg}, io.Discard, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "listen") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
+}
+
 func writeBootstrap(t *testing.T, mutate func(string) string) string {
+	return writeNamedBootstrap(t, "full.yaml", mutate)
+}
+
+func writeNamedBootstrap(t *testing.T, name string, mutate func(string) string) string {
 	t.Helper()
 	root := repoRoot(t)
-	src, err := os.ReadFile(filepath.Join(root, "testdata", "config", "valid", "full.yaml"))
+	src, err := os.ReadFile(filepath.Join(root, "testdata", "config", "valid", name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	secrets := filepath.Join(root, "testdata", "secrets") + string(os.PathSeparator)
+	certs := filepath.Join(root, "testdata", "certs") + string(os.PathSeparator)
 	body := strings.ReplaceAll(string(src), "testdata/secrets/", secrets)
+	body = strings.ReplaceAll(body, "testdata/certs/", certs)
 	if mutate != nil {
 		body = mutate(body)
 	}

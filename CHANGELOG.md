@@ -28,6 +28,11 @@ All notable user-visible and operator-visible changes are recorded here.
 - RFC 3430 BER TCP framing in `internal/snmpwire`: `ReadTCP` /
   `WriteTCP` frame one SNMP SEQUENCE by identifier+length. A framed
   Get starts with `0x30`.
+- `labsnmp serve --dtls-listen` / `--dtls-trap-listen` (`ADDR|off`).
+  Serve may start with agent UDP off if TCP or DTLS agent is on.
+  Bind failure of any enabled data-plane listener is exit 1. Image
+  `EXPOSE 161/tcp 162/tcp` (not `10161/udp`). Smoke compose stays
+  UDP `:1161`/`:1162`.
 
 ### Changed
 
