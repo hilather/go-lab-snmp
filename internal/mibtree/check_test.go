@@ -66,6 +66,13 @@ func TestCheckSetTypeRangeSize(t *testing.T) {
 	if err := tree.CheckSet(gauge, Value{Type: model.TypeGauge32, Unsigned: 50}); err != nil {
 		t.Fatalf("gauge: %v", err)
 	}
+	coerced := Value{Type: model.TypeUnsigned32, Unsigned: 50}
+	if err := tree.CheckSetCoerce(gauge, &coerced); err != nil {
+		t.Fatalf("coerce unsigned→gauge: %v", err)
+	}
+	if coerced.Type != model.TypeGauge32 {
+		t.Fatalf("coerced type %s", coerced.Type)
+	}
 	if err := tree.CheckSet(gauge, Value{Type: model.TypeGauge32, Unsigned: 101}); !errors.Is(err, ErrWrongValue) {
 		t.Fatalf("gauge range: %v", err)
 	}

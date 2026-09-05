@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
+	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/testutil"
 )
 
@@ -39,8 +41,13 @@ func (s *App) planLocked(in ChangeIn) (*Plan, error) {
 	}
 	if hit, err := s.idemp.lookup(in.IdempotencyKey, fp); err != nil {
 		return nil, err
-	} else if hit != nil && hit.plan != nil {
-		return clonePlan(hit.plan), nil
+	} else if hit != nil {
+		if hit.plan != nil {
+			return clonePlan(hit.plan), nil
+		}
+		if hit.apply != nil {
+			return clonePlan(&hit.apply.Plan), nil
+		}
 	}
 	cand, err := s.buildCandidate(in, true)
 	if err != nil {
@@ -72,6 +79,10 @@ func (s *App) Apply(ctx context.Context, actor Actor, in ChangeIn) (*ApplyResult
 func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*ApplyResult, []func(), error) {
 	_ = ctx
 	_ = actor
+	if strings.TrimSpace(in.IdempotencyKey) == "" {
+		return nil, nil, domainerr.ValidationFailed("Idempotency-Key is required",
+			domainerr.FieldViolation{Path: "idempotencyKey", Code: "required", Message: "Idempotency-Key is required for apply"})
+	}
 	fp, err := fingerprintChange(in)
 	if err != nil {
 		return nil, nil, err
@@ -86,11 +97,8 @@ func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*Apply
 		s.forgetIdempOnConflict(in.IdempotencyKey, err)
 		return nil, nil, err
 	}
-	if s.traps != nil && cand.next != nil && cand.next.Canonical != nil {
-		tp := cand.next.Canonical.Spec.Traps
-		if err := s.traps.ReplaceCaps(tp.MaxMessages, tp.MaxBytes, tp.FullPolicy); err != nil {
-			return nil, nil, asDomain(err)
-		}
+	if err := s.syncTrapPolicyIfChanged(cand.prev, cand.next); err != nil {
+		return nil, nil, err
 	}
 	_ = s.snaps.Swap(cand.next)
 	res := &ApplyResult{
@@ -244,7 +252,36 @@ func (s *App) forgetIdempOnConflict(key string, err error) {
 	if !ok || (de.Code != domainerr.CodeRevisionMismatch && de.Code != domainerr.CodeRevisionConflict) {
 		return
 	}
+	if s.idemp.hasApply(key) {
+		return
+	}
 	s.idemp.evict(key)
+}
+
+func (s *App) syncTrapPolicyIfChanged(prev, next *snapshot.Snapshot) error {
+	if s.traps == nil || next == nil || next.Canonical == nil {
+		return nil
+	}
+	if prev != nil && prev.Canonical != nil && jsonEqual(prev.Canonical.Spec.Traps, next.Canonical.Spec.Traps) {
+		return nil
+	}
+	return s.applyTrapPolicy(next)
+}
+
+func (s *App) applyTrapPolicy(next *snapshot.Snapshot) error {
+	if s.traps == nil || next == nil || next.Canonical == nil {
+		return nil
+	}
+	tp := next.Canonical.Spec.Traps
+	if err := s.traps.ReplaceCaps(store.TrapPolicy{
+		MaxMessages: tp.MaxMessages,
+		MaxBytes:    tp.MaxBytes,
+		FullPolicy:  tp.FullPolicy,
+		MaxWait:     tp.MaxWait,
+	}); err != nil {
+		return asDomain(err)
+	}
+	return nil
 }
 
 func (s *App) storeGeneration() uint64 {

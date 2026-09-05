@@ -79,9 +79,8 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	}
 
 	store.ResetEphemeral(s.overlay, s.traps, s.queries)
-	if next.Canonical != nil {
-		tp := next.Canonical.Spec.Traps
-		_ = s.traps.ReplaceCaps(tp.MaxMessages, tp.MaxBytes, tp.FullPolicy)
+	if err := s.applyTrapPolicy(next); err != nil {
+		return nil, nil, err
 	}
 
 	displaced := s.snaps.Swap(next)

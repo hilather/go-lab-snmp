@@ -45,8 +45,10 @@ func TestLiveVsResetOnly(t *testing.T) {
 		t.Fatal("do not mint dtls/tcp feature ids")
 	}
 
+	trapGen := svc.Traps().Generation()
 	res, err := svc.Apply(ctx, a, ChangeIn{
 		ExpectedRevision: snap.Revision,
+		IdempotencyKey:   "live-admission",
 		Operations: []model.Operation{{
 			Op:        model.OpReplaceAdmission,
 			Admission: &model.AdmissionSpec{AllowClientCidrs: []string{"127.0.0.0/8", "::1/128"}, MaxDatagramsPerSec: 1000, MaxDatagramsPerIP: 100},
@@ -58,9 +60,13 @@ func TestLiveVsResetOnly(t *testing.T) {
 	if !res.Applied {
 		t.Fatal("apply")
 	}
+	if svc.Traps().Generation() != trapGen {
+		t.Fatal("replaceAdmission must not bump trap-store generation")
+	}
 
 	_, err = svc.Apply(ctx, a, ChangeIn{
 		ExpectedRevision: res.RuntimeRevision,
+		IdempotencyKey:   "live-listeners",
 		Operations:       []model.Operation{{Op: "replaceListeners"}},
 	})
 	requireCode(t, err, domainerr.CodeValidationFailed)
@@ -73,6 +79,19 @@ func TestLiveVsResetOnly(t *testing.T) {
 func TestApplyRequiresExpectedRevision(t *testing.T) {
 	svc, _ := mustBoot(t)
 	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		IdempotencyKey: "need-rev",
+		Operations: []model.Operation{{
+			Op:        model.OpReplaceAdmission,
+			Admission: &model.AdmissionSpec{AllowClientCidrs: []string{"127.0.0.0/8"}, MaxDatagramsPerSec: 1, MaxDatagramsPerIP: 1},
+		}},
+	})
+	requireCode(t, err, domainerr.CodeValidationFailed)
+}
+
+func TestApplyRequiresIdempotencyKey(t *testing.T) {
+	svc, snap := mustBoot(t)
+	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
+		ExpectedRevision: snap.Revision,
 		Operations: []model.Operation{{
 			Op:        model.OpReplaceAdmission,
 			Admission: &model.AdmissionSpec{AllowClientCidrs: []string{"127.0.0.0/8"}, MaxDatagramsPerSec: 1, MaxDatagramsPerIP: 1},
@@ -85,6 +104,7 @@ func TestApplyRevisionMismatch(t *testing.T) {
 	svc, _ := mustBoot(t)
 	_, err := svc.Apply(context.Background(), actor(), ChangeIn{
 		ExpectedRevision: "sha256:deadbeef",
+		IdempotencyKey:   "mismatch",
 		Operations: []model.Operation{{
 			Op:        model.OpReplaceAdmission,
 			Admission: &model.AdmissionSpec{AllowClientCidrs: []string{"127.0.0.0/8"}, MaxDatagramsPerSec: 1, MaxDatagramsPerIP: 1},
@@ -124,10 +144,42 @@ func TestIdempotentApply(t *testing.T) {
 	requireCode(t, err, domainerr.CodeIdempotencyConflict)
 }
 
+func TestPlanAfterApplyReplaysWithoutEvicting(t *testing.T) {
+	svc, snap := mustBoot(t)
+	in := ChangeIn{
+		ExpectedRevision: snap.Revision,
+		IdempotencyKey:   "apply-then-plan",
+		Operations: []model.Operation{{
+			Op:        model.OpReplaceAdmission,
+			Admission: &model.AdmissionSpec{AllowClientCidrs: []string{"127.0.0.0/8", "::1/128"}, MaxDatagramsPerSec: 9, MaxDatagramsPerIP: 3},
+		}},
+	}
+	a := actor()
+	r1, err := svc.Apply(context.Background(), a, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := svc.Plan(context.Background(), a, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.CandidateRevision != r1.RuntimeRevision {
+		t.Fatalf("plan replay %s want %s", p.CandidateRevision, r1.RuntimeRevision)
+	}
+	r2, err := svc.Apply(context.Background(), a, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r2.RuntimeRevision != r1.RuntimeRevision {
+		t.Fatal("plan after apply must not evict the apply record")
+	}
+}
+
 func TestSetOIDSharesOverlay(t *testing.T) {
-	svc, _ := mustBoot(t)
+	svc, snap := mustBoot(t)
 	a := actor()
 	oid := "1.3.6.1.2.1.2.2.1.8.1"
+	beforeRev := snap.Revision
 	got, err := svc.GetOID(context.Background(), a, OIDGetIn{Map: "public-if", OID: oid})
 	if err != nil {
 		t.Fatal(err)
@@ -150,14 +202,14 @@ func TestSetOIDSharesOverlay(t *testing.T) {
 	if svc.Overlay().Generation() <= before {
 		t.Fatal("storeGeneration")
 	}
-	if svc.Active().Revision == "" {
-		t.Fatal("revision")
+	if svc.Active().Revision != beforeRev {
+		t.Fatal("oids:set must not change revision")
 	}
 	st, err := svc.GetState(context.Background(), a)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.RuntimeRevision != svc.Active().Revision {
+	if st.RuntimeRevision != beforeRev {
 		t.Fatal("oids:set must not change revision")
 	}
 }

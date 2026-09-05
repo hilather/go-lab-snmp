@@ -159,7 +159,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var sink *snmpsink.Server
 	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
 	if trapOn {
-		sink, err = newTrapSink(trapAddr, snap, svc.Traps())
+		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps())
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -202,7 +202,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	return 0
 }
 
-func newTrapSink(addr string, snap *snapshot.Snapshot, ring *store.TrapRing) (*snmpsink.Server, error) {
+func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing) (*snmpsink.Server, error) {
 	if ring == nil {
 		ring = store.NewTrapRing(store.TrapPolicy{
 			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
@@ -230,6 +230,7 @@ func newTrapSink(addr string, snap *snapshot.Snapshot, ring *store.TrapRing) (*s
 	return snmpsink.New(snmpsink.Config{
 		Addr:                  addr,
 		Store:                 ring,
+		Snapshots:             snaps,
 		Communities:           comms,
 		Engine:                snap.Engine,
 		Versions:              agentVers,

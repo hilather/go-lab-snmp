@@ -122,3 +122,29 @@ func (t *Tree) CheckSet(oid OID, v Value) error {
 func IsNotWritable(err error) bool {
 	return errors.Is(err, ErrNotWritable)
 }
+
+// CheckSetCoerce is CheckSet plus the gauge32↔unsigned32 alias used by
+// SNMP SET and REST/MCP oids:set. On success val.Type may be rewritten
+// to the compiled leaf type.
+func (t *Tree) CheckSetCoerce(oid OID, val *Value) error {
+	if val == nil {
+		return ErrWrongType
+	}
+	err := t.CheckSet(oid, *val)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrWrongType) {
+		return err
+	}
+	switch val.Type {
+	case model.TypeGauge32:
+		val.Type = model.TypeUnsigned32
+		return t.CheckSet(oid, *val)
+	case model.TypeUnsigned32:
+		val.Type = model.TypeGauge32
+		return t.CheckSet(oid, *val)
+	default:
+		return err
+	}
+}

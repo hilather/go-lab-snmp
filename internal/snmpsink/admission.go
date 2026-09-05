@@ -30,6 +30,9 @@ func (s *Server) allowed(ip netip.Addr) bool {
 	if !ip.IsValid() {
 		return false
 	}
+	if snap := s.snap(); snap != nil {
+		return snap.Allowed(ip)
+	}
 	ip = ip.Unmap()
 	if len(s.cfg.Allow) == 0 {
 		return ip.IsLoopback()

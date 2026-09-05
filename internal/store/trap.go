@@ -435,24 +435,29 @@ func (r *TrapRing) Stats() TrapStats {
 	}
 }
 
-// ReplaceCaps updates live caps and evicts until the inbox fits.
-func (r *TrapRing) ReplaceCaps(maxMessages int, maxBytes int64, policy string) error {
+// ReplaceCaps updates live caps including maxWait and evicts until the inbox fits.
+func (r *TrapRing) ReplaceCaps(p TrapPolicy) error {
 	if r == nil {
 		return domainerr.Internal("trap store is nil")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.policy = normalizePolicy(TrapPolicy{
-		MaxMessages: maxMessages,
-		MaxBytes:    maxBytes,
-		FullPolicy:  policy,
-		MaxWait:     r.policy.MaxWait,
-	})
+	r.policy = normalizePolicy(p)
 	for len(r.recs) > 0 && (len(r.recs) > r.policy.MaxMessages || r.bytes > r.policy.MaxBytes) {
 		r.evictOldestLocked()
 	}
 	r.gen++
 	return nil
+}
+
+// Policy is a copy of the live ring caps.
+func (r *TrapRing) Policy() TrapPolicy {
+	if r == nil {
+		return TrapPolicy{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.policy
 }
 
 func matchFilter(rec TrapRecord, f TrapFilter) bool {

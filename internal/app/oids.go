@@ -40,7 +40,7 @@ func (s *App) SetOID(ctx context.Context, actor Actor, in OIDSetIn) (*OIDResult,
 			domainerr.FieldViolation{Path: "oid", Code: "invalid_value", Message: err.Error()})
 	}
 	val := in.Value
-	if err := tree.CheckSet(oid, val); err != nil {
+	if err := tree.CheckSetCoerce(oid, &val); err != nil {
 		return nil, setOIDErr(err)
 	}
 	s.overlay.Set(in.Map, oid.String(), val)

@@ -18,6 +18,8 @@ var productionDialPackages = []string{
 	"internal/snmpsink",
 	"internal/store",
 	"internal/app",
+	"internal/compiler",
+	"internal/snapshot",
 }
 
 // Data-plane packages must not import control, web, or net/http.

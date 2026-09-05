@@ -14,11 +14,12 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 	if s == nil || s.cfg.Store == nil {
 		return
 	}
+	s.syncAdmission()
 	pc := s.conn()
 	if pc == nil {
 		return
 	}
-	if int64(len(pkt)) > s.cfg.MaxMessageBytes {
+	if int64(len(pkt)) > s.maxMessageBytes() {
 		s.Dropped.Add(1)
 		return
 	}
@@ -35,9 +36,9 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 		return
 	}
 
-	msg, err := snmpwire.DecodeMax(pkt, s.cfg.MaxMessageBytes)
+	msg, err := snmpwire.DecodeMax(pkt, s.maxMessageBytes())
 	if err != nil {
-		if s.cfg.AcceptUnauthenticated {
+		if s.acceptUnauth() {
 			s.storeBestEffort(pkt, addr, "decode: "+err.Error())
 			return
 		}
@@ -78,7 +79,7 @@ func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, m
 }
 
 func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
-	if s.cfg.Engine == nil {
+	if s.engine() == nil {
 		s.authFail(raw, addr, msg)
 		return
 	}
@@ -103,7 +104,7 @@ func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmp
 }
 
 func (s *Server) openV3(raw []byte, msg snmpwire.Message) (in *usm.Incoming, report []byte, discovery bool) {
-	eng := s.cfg.Engine
+	eng := s.engine()
 	if len(msg.USM.EngineID) == 0 || bytes.Equal(msg.USM.EngineID, eng.ID()) {
 		out := eng.Open(raw, msg)
 		if len(out.Report) > 0 {
@@ -123,7 +124,7 @@ func (s *Server) openV3(raw []byte, msg snmpwire.Message) (in *usm.Incoming, rep
 
 func (s *Server) authFail(raw []byte, addr net.Addr, msg snmpwire.Message) {
 	s.AuthFail.Add(1)
-	if !s.cfg.AcceptUnauthenticated {
+	if !s.acceptUnauth() {
 		s.Dropped.Add(1)
 		return
 	}
@@ -161,7 +162,7 @@ func unauthWarning(msg snmpwire.Message) string {
 
 func (s *Server) storePDU(raw []byte, addr net.Addr, msg snmpwire.Message, community, user, warning string) bool {
 	rec := recordFrom(msg, community, user, addrString(addr), warning, s.cfg.Clock.Now())
-	if s.cfg.RawRetain {
+	if s.rawRetain() {
 		rec.Raw = append([]byte(nil), raw...)
 	}
 	rec.Size = int64(len(raw))
@@ -179,7 +180,7 @@ func (s *Server) storeBestEffort(raw []byte, addr net.Addr, warning string) {
 		RemoteAddr:   addrString(addr),
 		ParseWarning: warning,
 	}
-	if s.cfg.RawRetain {
+	if s.rawRetain() {
 		rec.Raw = append([]byte(nil), raw...)
 	}
 	rec.Size = int64(len(raw))
@@ -199,23 +200,24 @@ func (s *Server) ackInform(pc net.PacketConn, addr net.Addr, msg snmpwire.Messag
 	var out []byte
 	var err error
 	if msg.Version == snmpwire.VersionV3 {
-		if s.cfg.Engine == nil {
+		eng := s.engine()
+		if eng == nil {
 			return
 		}
-		in := &usm.Incoming{User: s.cfg.Engine.User(string(msg.USM.UserName)), Message: msg}
+		in := &usm.Incoming{User: eng.User(string(msg.USM.UserName)), Message: msg}
 		if msg.ScopedPDU != nil {
 			in.ScopedPDU = *msg.ScopedPDU
 		}
 		if in.User == nil {
 			return
 		}
-		out, err = s.cfg.Engine.Reply(in, resp)
+		out, err = eng.Reply(in, resp)
 	} else {
 		out, err = snmpwire.EncodeMax(snmpwire.Message{
 			Version:   msg.Version,
 			Community: append([]byte(nil), msg.Community...),
 			PDU:       &resp,
-		}, s.cfg.MaxMessageBytes)
+		}, s.maxMessageBytes())
 	}
 	if err != nil || len(out) == 0 {
 		return
@@ -234,14 +236,30 @@ func ack(pc net.PacketConn, addr net.Addr, payload []byte) {
 }
 
 func (s *Server) lookupCommunity(wire []byte) *Community {
-	if s == nil || len(s.cfg.Communities) == 0 {
+	if s == nil {
+		return nil
+	}
+	if snap := s.snap(); snap != nil {
+		c := snap.LookupCommunity(wire)
+		if c == nil {
+			return nil
+		}
+		return &Community{Name: c.Name, Wire: c.Wire, Versions: c.Versions}
+	}
+	if len(s.cfg.Communities) == 0 {
 		return nil
 	}
 	return s.cfg.Communities[string(wire)]
 }
 
 func (s *Server) versionOK(label string) bool {
-	if s == nil || len(s.cfg.Versions) == 0 {
+	if s == nil {
+		return true
+	}
+	if snap := s.snap(); snap != nil {
+		return snap.VersionOK(label)
+	}
+	if len(s.cfg.Versions) == 0 {
 		return true
 	}
 	return s.cfg.Versions[label]

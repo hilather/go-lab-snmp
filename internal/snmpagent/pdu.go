@@ -125,7 +125,7 @@ func (rt *Runtime) serveSet(ver snmpwire.Version, access, mapName string, req sn
 	for i, vb := range req.VarBinds {
 		oid := toMIBOID(vb.Name)
 		val := fromWireValue(vb.Value)
-		if err := checkSetCoerce(tree, oid, &val); err != nil {
+		if err := tree.CheckSetCoerce(oid, &val); err != nil {
 			resp.ErrorStatus = setErrorStatus(ver, err)
 			resp.ErrorIndex = int32(i + 1)
 			return resp
@@ -136,29 +136,6 @@ func (rt *Runtime) serveSet(ver snmpwire.Version, access, mapName string, req sn
 		rt.Overlay.SetAll(mapName, pairs)
 	}
 	return resp
-}
-
-func checkSetCoerce(tree *mibtree.Tree, oid mibtree.OID, val *mibtree.Value) error {
-	if val == nil {
-		return mibtree.ErrWrongType
-	}
-	err := tree.CheckSet(oid, *val)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, mibtree.ErrWrongType) {
-		return err
-	}
-	switch val.Type {
-	case model.TypeGauge32:
-		val.Type = model.TypeUnsigned32
-		return tree.CheckSet(oid, *val)
-	case model.TypeUnsigned32:
-		val.Type = model.TypeGauge32
-		return tree.CheckSet(oid, *val)
-	default:
-		return err
-	}
 }
 
 func setAccessStatus(ver snmpwire.Version) int32 {

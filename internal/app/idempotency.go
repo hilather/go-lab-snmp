@@ -76,10 +76,23 @@ func (c *idempCache) storeApply(key, fp string, r *ApplyResult) {
 	defer c.mu.Unlock()
 	if e, ok := c.entries[key]; ok && e.fp == fp {
 		e.apply = cloneApply(r)
+		if e.plan == nil {
+			e.plan = clonePlan(&r.Plan)
+		}
 		c.moveFrontLocked(e)
 		return
 	}
-	c.insertFrontLocked(&idempEntry{key: key, fp: fp, apply: cloneApply(r)})
+	c.insertFrontLocked(&idempEntry{key: key, fp: fp, plan: clonePlan(&r.Plan), apply: cloneApply(r)})
+}
+
+func (c *idempCache) hasApply(key string) bool {
+	if c == nil || key == "" {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[key]
+	return ok && e.apply != nil
 }
 
 func (c *idempCache) evict(key string) {

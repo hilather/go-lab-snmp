@@ -81,6 +81,25 @@ func TestWaitInserted(t *testing.T) {
 	}
 }
 
+func TestReplaceCapsUpdatesMaxWait(t *testing.T) {
+	r := NewTrapRing(TrapPolicy{MaxMessages: 8, MaxBytes: 4096, MaxWait: time.Second})
+	if err := r.ReplaceCaps(TrapPolicy{MaxMessages: 8, MaxBytes: 4096, MaxWait: 50 * time.Millisecond}); err != nil {
+		t.Fatal(err)
+	}
+	if r.Policy().MaxWait != 50*time.Millisecond {
+		t.Fatalf("maxWait %s", r.Policy().MaxWait)
+	}
+	start := time.Now()
+	_, err := r.Wait(context.Background(), TrapFilter{PDUType: "inform"}, time.Second)
+	de, ok := domainerr.As(err)
+	if !ok || de.Code != domainerr.CodeWaitTimeout {
+		t.Fatalf("err=%v", err)
+	}
+	if time.Since(start) > 400*time.Millisecond {
+		t.Fatalf("wait used old ceiling: %s", time.Since(start))
+	}
+}
+
 func TestWaitTimeout(t *testing.T) {
 	r := NewTrapRing(TrapPolicy{MaxMessages: 8, MaxBytes: 4096, MaxWait: 50 * time.Millisecond})
 	_, err := r.Wait(context.Background(), TrapFilter{PDUType: "inform"}, 20*time.Millisecond)

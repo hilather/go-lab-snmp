@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/usm"
 )
@@ -39,6 +40,7 @@ type Community struct {
 type Config struct {
 	Addr                  string
 	Store                 *store.TrapRing
+	Snapshots             *snapshot.Store       // live communities/users/admission/trap-policy; nil uses static fields
 	Communities           map[string]*Community // keyed by wire community string
 	Engine                *usm.Engine
 	Versions              map[string]bool // spec.agent.versions; empty allows all
@@ -96,15 +98,68 @@ func New(cfg Config) (*Server, error) {
 		cfg.Clock = systemClock{}
 	}
 	now := cfg.Clock.Now
+	maxSec, maxIP := cfg.MaxPerSec, cfg.MaxPerIP
+	if cfg.Snapshots != nil {
+		if snap := cfg.Snapshots.Load(); snap != nil {
+			maxSec, maxIP = snap.MaxPerSec, snap.MaxPerIP
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		cfg:      cfg,
 		ctx:      ctx,
 		cancel:   cancel,
 		inflight: make(chan struct{}, cfg.MaxInflight),
-		global:   newQueryLimiter(float64(cfg.MaxPerSec), float64(cfg.MaxPerSec), now),
-		perIP:    newQueryLimiter(float64(cfg.MaxPerIP), float64(cfg.MaxPerIP), now),
+		global:   newQueryLimiter(float64(maxSec), float64(maxSec), now),
+		perIP:    newQueryLimiter(float64(maxIP), float64(maxIP), now),
 	}, nil
+}
+
+func (s *Server) snap() *snapshot.Snapshot {
+	if s == nil || s.cfg.Snapshots == nil {
+		return nil
+	}
+	return s.cfg.Snapshots.Load()
+}
+
+func (s *Server) engine() *usm.Engine {
+	if snap := s.snap(); snap != nil {
+		return snap.Engine
+	}
+	return s.cfg.Engine
+}
+
+func (s *Server) maxMessageBytes() int64 {
+	if snap := s.snap(); snap != nil && snap.MaxMessageBytes > 0 {
+		return snap.MaxMessageBytes
+	}
+	if s.cfg.MaxMessageBytes < 1 {
+		return 64 << 10
+	}
+	return s.cfg.MaxMessageBytes
+}
+
+func (s *Server) rawRetain() bool {
+	if snap := s.snap(); snap != nil {
+		return snap.RawRetain
+	}
+	return s.cfg.RawRetain
+}
+
+func (s *Server) acceptUnauth() bool {
+	if snap := s.snap(); snap != nil {
+		return snap.AcceptUnauthenticated
+	}
+	return s.cfg.AcceptUnauthenticated
+}
+
+func (s *Server) syncAdmission() {
+	snap := s.snap()
+	if snap == nil {
+		return
+	}
+	s.global.setRate(float64(snap.MaxPerSec), float64(snap.MaxPerSec))
+	s.perIP.setRate(float64(snap.MaxPerIP), float64(snap.MaxPerIP))
 }
 
 // Start binds ListenPacket("udp") and serves in the background.
