@@ -62,7 +62,14 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	newTrap := effectiveTrap(s.trapOverride, next.TrapAddress, next.TrapsEnabled)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
-	desired := DesiredListeners{AgentUDP: newSNMP, TrapUDP: newTrap}
+	desired := DesiredListeners{
+		AgentUDP:  newSNMP,
+		TrapUDP:   newTrap,
+		AgentTCP:  effectiveTCP(next.TCPEnabled, next.TCPAddress, newSNMP),
+		TrapTCP:   effectiveTCP(next.TCPEnabled, next.TCPTrapsAddress, newTrap),
+		AgentDTLS: effectiveDTLS(s.dtlsOverride, next.DTLSAddress, next.DTLSEnabled),
+		TrapDTLS:  effectiveDTLS(s.dtlsTrapOverride, next.DTLSTrapsAddress, next.DTLSEnabled),
+	}
 	if s.dataPlaneSync != nil {
 		if err := s.dataPlaneSync(desired); err != nil {
 			return nil, nil, asDomain(err)

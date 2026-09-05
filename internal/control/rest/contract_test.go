@@ -493,6 +493,58 @@ func TestProblemJSONCode(t *testing.T) {
 	}
 }
 
+func TestStatusListenerNames(t *testing.T) {
+	s, _ := newTestServer(t)
+	resp := doJSON(t, s, http.MethodGet, "/v1/status", "")
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d %s", resp.StatusCode, b)
+	}
+	m := decodeMap(t, resp)
+	raw, _ := m["listeners"].([]any)
+	names := map[string]bool{}
+	for _, item := range raw {
+		row, _ := item.(map[string]any)
+		n, _ := row["name"].(string)
+		names[n] = true
+	}
+	for _, n := range []string{"agent", "traps", "management"} {
+		if !names[n] {
+			t.Fatalf("missing %s: %v", n, names)
+		}
+	}
+	for _, n := range []string{"agent-tcp", "traps-tcp", "agent-dtls", "traps-dtls"} {
+		if names[n] {
+			t.Fatalf("disabled transport listed: %s", n)
+		}
+	}
+
+	svc := bootNamedApp(t, "tcp-enabled.yaml")
+	s2, _ := newServerFor(t, svc)
+	resp = doJSON(t, s2, http.MethodGet, "/v1/status", "")
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("tcp status %d %s", resp.StatusCode, b)
+	}
+	m = decodeMap(t, resp)
+	raw, _ = m["listeners"].([]any)
+	names = map[string]bool{}
+	addrs := map[string]string{}
+	for _, item := range raw {
+		row, _ := item.(map[string]any)
+		n, _ := row["name"].(string)
+		a, _ := row["address"].(string)
+		names[n] = true
+		addrs[n] = a
+	}
+	if !names["agent-tcp"] || !names["traps-tcp"] {
+		t.Fatalf("tcp listeners: %v", names)
+	}
+	if addrs["agent-tcp"] != ":1161" {
+		t.Fatalf("agent-tcp address %q", addrs["agent-tcp"])
+	}
+}
+
 func TestFeaturesCatalogK20(t *testing.T) {
 	s, _ := newTestServer(t)
 	resp := doJSON(t, s, http.MethodGet, "/v1/features", "")

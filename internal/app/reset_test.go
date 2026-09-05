@@ -217,6 +217,108 @@ func TestResetEmptyDesiredUDPStops(t *testing.T) {
 	}
 }
 
+func TestResetInheritedTCPFollowsUDP(t *testing.T) {
+	path := copyNamed(t, "tcp-enabled.yaml")
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldUDP := svc.Active().AgentAddress
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten := strings.Replace(string(body), `address: ":1161"`, `address: "127.0.0.1:2161"`, 1)
+	if rewritten == string(body) {
+		t.Fatal("fixture agent.address")
+	}
+	if err := os.WriteFile(path, []byte(rewritten), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var got DesiredListeners
+	var activeDuring string
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		activeDuring = svc.Active().AgentAddress
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "inherit-tcp"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentUDP != "127.0.0.1:2161" || got.AgentTCP != "127.0.0.1:2161" {
+		t.Fatalf("inherited TCP must follow next UDP: %+v", got)
+	}
+	if got.TrapUDP != ":1162" || got.TrapTCP != ":1162" {
+		t.Fatalf("trap inherit: %+v", got)
+	}
+	if activeDuring != oldUDP {
+		t.Fatalf("hook must run before Swap: active=%s old=%s", activeDuring, oldUDP)
+	}
+}
+
+func TestResetDTLSDesiredFromNext(t *testing.T) {
+	svc, _ := mustBootNamed(t, "dtls-enabled.yaml")
+	var got DesiredListeners
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{}); err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentDTLS != ":10161" || got.TrapDTLS != ":10162" {
+		t.Fatalf("dtls desired from next: %+v", got)
+	}
+	if got.AgentTCP != "" {
+		t.Fatalf("tcp off: %+v", got)
+	}
+}
+
+func TestResetDTLSOverrideOff(t *testing.T) {
+	path := copyNamed(t, "dtls-enabled.yaml")
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path, DTLSListenOverride: "off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	var got DesiredListeners
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{}); err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentDTLS != "" {
+		t.Fatalf("dtls-listen=off: %+v", got)
+	}
+	if got.TrapDTLS != ":10162" {
+		t.Fatalf("trap dtls still on: %+v", got)
+	}
+}
+
+func TestResetTCPOnlyDesired(t *testing.T) {
+	svc, _ := mustBootNamed(t, "tcp-only.yaml")
+	var got DesiredListeners
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{}); err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentUDP != "" {
+		t.Fatalf("tcp-only UDP must be off: %+v", got)
+	}
+	if got.AgentTCP != ":1161" {
+		t.Fatalf("tcp-only AgentTCP: %+v", got)
+	}
+	if got.TrapTCP != "" {
+		t.Fatalf("tcp-only TrapTCP off: %+v", got)
+	}
+}
+
 func TestResetDataPlaneSyncErrorKeepsSnapshot(t *testing.T) {
 	svc, snap := mustBoot(t)
 	rev := snap.Revision

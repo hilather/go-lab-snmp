@@ -33,7 +33,15 @@ type Facts struct {
 	// MgmtBound is true when the management listener is accepting.
 	MgmtBound bool
 	// MgmtOff is true when management was explicitly disabled (off/none/-).
-	MgmtOff bool
+	MgmtOff       bool
+	TCPBound      bool
+	TCPOff        bool
+	TrapTCPBound  bool
+	TrapTCPOff    bool
+	DTLSBound     bool
+	DTLSOff       bool
+	TrapDTLSBound bool
+	TrapDTLSOff   bool
 }
 
 // Probe is liveness and readiness plus bounded warnings.
@@ -50,8 +58,12 @@ func Evaluate(in Facts) Probe {
 	p := Probe{Live: !in.ProcessDown}
 	agentOK := in.AgentBound || in.AgentOff
 	trapOK := in.TrapBound || in.TrapOff
+	tcpOK := in.TCPBound || in.TCPOff
+	trapTCPOK := in.TrapTCPBound || in.TrapTCPOff
+	dtlsOK := in.DTLSBound || in.DTLSOff
+	trapDTLSOK := in.TrapDTLSBound || in.TrapDTLSOff
 	mgmtOK := in.MgmtBound || in.MgmtOff
-	p.Ready = p.Live && in.SnapshotUp && agentOK && trapOK && mgmtOK
+	p.Ready = p.Live && in.SnapshotUp && agentOK && trapOK && tcpOK && trapTCPOK && dtlsOK && trapDTLSOK && mgmtOK
 
 	add := func(code, msg string) {
 		if len(p.Warnings) >= MaxWarnings {
@@ -66,6 +78,22 @@ func Evaluate(in Facts) Probe {
 	}
 	if !trapOK {
 		add(WarnTrapUnbound, "trap UDP listener is not bound")
+		listenerUnbound = true
+	}
+	if !tcpOK {
+		add(WarnAgentUnbound, "SNMP agent TCP listener is not bound")
+		listenerUnbound = true
+	}
+	if !trapTCPOK {
+		add(WarnTrapUnbound, "trap TCP listener is not bound")
+		listenerUnbound = true
+	}
+	if !dtlsOK {
+		add(WarnAgentUnbound, "SNMP agent DTLS listener is not bound")
+		listenerUnbound = true
+	}
+	if !trapDTLSOK {
+		add(WarnTrapUnbound, "trap DTLS listener is not bound")
 		listenerUnbound = true
 	}
 	if !in.SnapshotUp {

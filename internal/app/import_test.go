@@ -26,6 +26,7 @@ func TestNoControlWebImports(t *testing.T) {
 		for _, imp := range f.Imports {
 			path := strings.Trim(imp.Path.Value, `"`)
 			if strings.Contains(path, "internal/control") || strings.Contains(path, "internal/web") ||
+				strings.Contains(path, "internal/snmpagent") || strings.Contains(path, "internal/snmpsink") ||
 				path == "net/http" {
 				t.Errorf("%s imports %s", name, path)
 			}

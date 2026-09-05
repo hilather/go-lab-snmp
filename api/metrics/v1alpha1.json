@@ -85,6 +85,14 @@
       ]
     },
     {
+      "name": "labsnmp_listeners_bound",
+      "kind": "gauge",
+      "help": "Listener bind state by component (1 bound, 0 enabled-but-unbound; omitted if off).",
+      "labels": [
+        "component"
+      ]
+    },
+    {
       "name": "labsnmp_pdus_total",
       "kind": "counter",
       "help": "SNMP PDUs by version, PDU type, and decision.",

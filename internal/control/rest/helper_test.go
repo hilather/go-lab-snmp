@@ -39,8 +39,13 @@ func repoRoot(t *testing.T) string {
 
 func bootTestApp(t *testing.T) *app.App {
 	t.Helper()
+	return bootNamedApp(t, "full.yaml")
+}
+
+func bootNamedApp(t *testing.T, name string) *app.App {
+	t.Helper()
 	t.Chdir(repoRoot(t))
-	src, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", "full.yaml"))
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", name))
 	if err != nil {
 		t.Fatal(err)
 	}
