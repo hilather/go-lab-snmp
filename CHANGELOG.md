@@ -6,7 +6,10 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Added
 
-- None.
+- v1.1 residual increment design (`IMPLEMENTATION-DESIGN-v1.1.md`),
+  ADR 0016 (RFC 3430 TCP BER-length framing; DTLS 1.2 record layer on
+  10161/10162, not TLSTM/TSM), and the v1.1 task board (FND-110).
+  `enabled: true` still rejects until CFG-110.
 
 ### Changed
 
