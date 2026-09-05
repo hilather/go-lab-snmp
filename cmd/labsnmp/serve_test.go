@@ -7,6 +7,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +17,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
+	"github.com/hilather/go-lab-snmp/internal/web"
 )
 
 func TestServeAnswersWithManagementOff(t *testing.T) {
@@ -223,6 +227,17 @@ func TestServeBindsManagementListen(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("version with bearer %d", resp.StatusCode)
 	}
+	resp, err = http.Get("http://" + mgmt + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET / %d (UIEnabled=%v must 404 problem+json)", resp.StatusCode, web.UIEnabled)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/problem+json") {
+		t.Fatalf("GET / content-type %q", ct)
+	}
 	cancel()
 	select {
 	case code := <-errc:
@@ -278,6 +293,105 @@ func TestServeTrapListenBinds(t *testing.T) {
 	p := m.RequestPDU()
 	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 15 {
 		t.Fatalf("INFORM ack %+v", p)
+	}
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestParseServeFlagsShutdownAndPID(t *testing.T) {
+	f, err := parseServeFlags([]string{"--config", "x.yaml"}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.ShutdownTimeout != defaultShutdownTimeout || defaultShutdownTimeout != 10*time.Second {
+		t.Fatalf("shutdown-timeout default %s, want 10s", f.ShutdownTimeout)
+	}
+	if f.PIDFile != "" {
+		t.Fatalf("pid-file default %q", f.PIDFile)
+	}
+	if f.ManagementListen != "off" {
+		t.Fatalf("management-listen default %q", f.ManagementListen)
+	}
+	f, err = parseServeFlags([]string{
+		"--config", "x.yaml",
+		"--shutdown-timeout", "3s",
+		"--pid-file", "/tmp/labsnmp.pid",
+	}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.ShutdownTimeout != 3*time.Second {
+		t.Fatalf("shutdown-timeout %s", f.ShutdownTimeout)
+	}
+	if f.PIDFile != "/tmp/labsnmp.pid" {
+		t.Fatalf("pid-file %q", f.PIDFile)
+	}
+}
+
+func TestServeWritesPIDFile(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	pidPath := filepath.Join(t.TempDir(), "labsnmp.pid")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/full.yaml",
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", "off",
+			"--pid-file", pidPath,
+			"--shutdown-timeout", "2s",
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	deadline := time.After(5 * time.Second)
+	bound := false
+	for !bound {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp snmp listen=") {
+				bound = true
+			}
+		case <-deadline:
+			t.Fatal("missing snmp listen line")
+		}
+	}
+	var raw []byte
+	var err error
+	for i := 0; i < 50; i++ {
+		raw, err = os.ReadFile(pidPath)
+		if err == nil && len(bytes.TrimSpace(raw)) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid < 1 {
+		t.Fatalf("pid-file %q", raw)
 	}
 	cancel()
 	select {

@@ -1,0 +1,38 @@
+# Minimal Compose smoke for the hardened image.
+# Default path uses --snmp-listen=:1161 --trap-listen=:1162 and cap_drop ALL
+# (no NET_BIND_SERVICE). Integrator overlay binds :161/:162 and restores only
+# that cap. Host-publish UDP may SNAT via userland-proxy (NAT collision);
+# identity is community/user, not client IP.
+services:
+  labsnmp:
+    image: ghcr.io/hilather/labsnmp:test
+    command:
+      - serve
+      - --config=/etc/labsnmp/config.yaml
+      - --snmp-listen=:1161
+      - --trap-listen=:1162
+      - --management-listen=:8088
+    ports:
+      - "127.0.0.1:1161:1161/udp"
+      - "127.0.0.1:1162:1162/udp"
+      - "127.0.0.1:18088:8088/tcp"
+    volumes:
+      - "../testdata/container/config.yaml:/etc/labsnmp/config.yaml:ro"
+      - "../testdata/container/token:/etc/labsnmp/token:ro"
+      - "../testdata/container/community-public:/etc/labsnmp/community-public:ro"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "65532:65532"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/labsnmp", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - default

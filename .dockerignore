@@ -1,0 +1,6 @@
+# Keep the image build context to the Go module. The design pack is a
+# frozen reference and is not compiled into the binary.
+.git
+go-lab-snmp-design-pack
+bin
+web/node_modules

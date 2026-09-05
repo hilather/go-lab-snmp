@@ -1,0 +1,56 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: container-smoke
+spec:
+  listeners:
+    agent:
+      enabled: true
+      address: ":161"
+    traps:
+      enabled: true
+      address: ":162"
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: smoke
+        role: administrator
+        secretFile: token
+  ui:
+    enabled: false
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true
+    bodyLimit: 1MiB
+  admission:
+    allowClientCidrs:
+      - "0.0.0.0/0"
+      - "::/0"
+  observability:
+    logLevel: info
+    metrics:
+      publicPath: false
+  maps:
+    - name: public-if
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          name: sysDescr
+          type: octetString
+          access: read
+          value: "LabSNMP container-smoke"
+        - oid: "1.3.6.1.2.1.1.3.0"
+          name: sysUpTime
+          type: timeTicks
+          access: read
+          valueFrom: uptime
+  communities:
+    - name: public
+      communityFile: community-public
+      versions: [v1, v2c]
+      access: read
+      map: public-if

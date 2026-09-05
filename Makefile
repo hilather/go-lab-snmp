@@ -32,7 +32,7 @@ help:
 		'  web-test            Vitest operator SPA tests' \
 		'  web-build           production Vite build + copy into internal/web/dist' \
 		'  web-embed           copy web/dist into internal/web/dist' \
-		'  test-container      build image and check non-root/read-only/no-caps' \
+		'  test-container      build image and check non-root/read-only/no-caps (:1161/:1162; skip if no docker)' \
 		'  test-changelog      observable paths require a CHANGELOG.md entry'
 
 fmt: format
@@ -77,7 +77,10 @@ generate:
 verify-generated:
 	$(GO) run ./scripts/generate -check
 
+test-container:
+	bash scripts/test-container.sh
+
 test-parity \
-test-container security-scan web-install web-test web-build web-embed:
+security-scan web-install web-test web-build web-embed:
 	@echo 'make $@: not implemented' >&2
 	@false

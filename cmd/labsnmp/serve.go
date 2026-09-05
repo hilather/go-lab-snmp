@@ -25,7 +25,10 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
 	"github.com/hilather/go-lab-snmp/internal/snmpsink"
 	"github.com/hilather/go-lab-snmp/internal/store"
+	"github.com/hilather/go-lab-snmp/internal/web"
 )
+
+const defaultShutdownTimeout = 10 * time.Second
 
 type serveFlags struct {
 	Config           string
@@ -43,7 +46,7 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	snmpListen := fs.String("snmp-listen", "", "override agent listen address (empty uses YAML)")
 	trapListen := fs.String("trap-listen", "", "override trap listen address (empty uses YAML; off disables)")
 	mgmtListen := fs.String("management-listen", "off", "management listen; off/none/- leaves it unbound")
-	shutdown := fs.Duration("shutdown-timeout", snmpagent.DefaultShutdownWait, "graceful shutdown deadline")
+	shutdown := fs.Duration("shutdown-timeout", defaultShutdownTimeout, "graceful shutdown deadline")
 	pidFile := fs.String("pid-file", "", "write process id after listeners bind")
 	if err := fs.Parse(args); err != nil {
 		return serveFlags{}, err
@@ -264,6 +267,10 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			},
 			Metrics: metrics,
 			Logger:  logger,
+			// rest must not import web. UI-001 replaces the placeholder embed;
+			// web.UIEnabled stays false so GET / is 404 problem+json until then.
+			UI:        http.FileServer(http.FS(web.Files())),
+			UIEnabled: serveUIEnabled(svc),
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
@@ -299,7 +306,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	<-ctx.Done()
 	deadline := flags.ShutdownTimeout
 	if deadline <= 0 {
-		deadline = snmpagent.DefaultShutdownWait
+		deadline = defaultShutdownTimeout
 	}
 	shctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
@@ -312,6 +319,22 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	_ = srv.Shutdown(shctx)
 	_, _ = fmt.Fprintln(stdout, "labsnmp: shutting down")
 	return 0
+}
+
+func serveUIEnabled(svc *app.App) func() bool {
+	return func() bool {
+		if !web.UIEnabled {
+			return false
+		}
+		if svc == nil {
+			return false
+		}
+		live := svc.Active()
+		if live == nil || live.Canonical == nil {
+			return false
+		}
+		return live.Canonical.Spec.UI.Enabled
+	}
 }
 
 func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger) (*snmpsink.Server, error) {
