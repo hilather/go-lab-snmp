@@ -14,7 +14,10 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Fixed
 
-- None.
+- Reset rebinds UDP agent and trap sockets (bind-new-first). Changing
+  bootstrap `listeners.agent.address` / `traps.address` then Reset moves
+  the PacketConn. An empty desired UDP address stops that listener.
+  A failed new bind leaves the old sockets serving (U2).
 
 ### Removed
 

@@ -64,10 +64,12 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	udp     net.PacketConn
-	started bool
-	stopped bool
+	mu       sync.Mutex
+	udp      net.PacketConn
+	udpGen   uint64
+	bindAddr string
+	started  bool
+	stopped  bool
 
 	inflight chan struct{}
 	global   *queryLimiter
@@ -87,9 +89,6 @@ type Server struct {
 func New(cfg Config) (*Server, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("snmpsink: Store is required")
-	}
-	if cfg.Addr == "" {
-		return nil, errors.New("snmpsink: Addr is required")
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
@@ -175,14 +174,76 @@ func (s *Server) Start() error {
 	if s.stopped {
 		return errors.New("snmpsink: start after shutdown")
 	}
+	if s.cfg.Addr == "" {
+		return errors.New("snmpsink: Addr is required")
+	}
 	pc, err := net.ListenPacket("udp", s.cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("snmpsink: udp listen: %w", err)
 	}
 	s.udp = pc
+	s.bindAddr = s.cfg.Addr
 	s.started = true
+	s.udpGen++
+	gen := s.udpGen
 	s.wg.Add(1)
-	go s.serveUDP()
+	go s.serveUDP(gen)
+	return nil
+}
+
+// SwapUDP installs pc as the serving PacketConn and starts a read loop.
+// The previous conn is returned for the caller to close. A nil pc unbinds.
+func (s *Server) SwapUDP(pc net.PacketConn) net.PacketConn {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.udp
+	s.udp = pc
+	s.udpGen++
+	if pc != nil {
+		s.bindAddr = pc.LocalAddr().String()
+		s.started = true
+		gen := s.udpGen
+		s.wg.Add(1)
+		go s.serveUDP(gen)
+	} else {
+		s.bindAddr = ""
+	}
+	return old
+}
+
+// Rebind binds addr first, then closes the previous PacketConn.
+// Empty addr unbinds. The previous socket keeps serving if Listen fails.
+func (s *Server) Rebind(addr string) error {
+	if s == nil {
+		return errors.New("snmpsink: nil server")
+	}
+	if addr == "" {
+		old := s.SwapUDP(nil)
+		if old != nil {
+			_ = old.Close()
+		}
+		return nil
+	}
+	s.mu.Lock()
+	same := s.bindAddr == addr && s.udp != nil && !s.stopped
+	s.mu.Unlock()
+	if same {
+		return nil
+	}
+	pc, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		return fmt.Errorf("snmpsink: udp listen: %w", err)
+	}
+	old := s.SwapUDP(pc)
+	if old != nil {
+		_ = old.Close()
+	}
+	s.mu.Lock()
+	s.bindAddr = addr
+	s.mu.Unlock()
 	return nil
 }
 
@@ -252,7 +313,7 @@ func (s *Server) conn() net.PacketConn {
 	return s.udp
 }
 
-func (s *Server) serveUDP() {
+func (s *Server) serveUDP(gen uint64) {
 	defer s.wg.Done()
 	max := int(s.cfg.MaxMessageBytes)
 	if max < 1 {
@@ -263,7 +324,13 @@ func (s *Server) serveUDP() {
 		if s.ctx.Err() != nil {
 			return
 		}
-		pc := s.conn()
+		s.mu.Lock()
+		if s.udpGen != gen {
+			s.mu.Unlock()
+			return
+		}
+		pc := s.udp
+		s.mu.Unlock()
 		if pc == nil {
 			return
 		}

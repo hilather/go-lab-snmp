@@ -363,3 +363,47 @@ func TestListenPacketUDP(t *testing.T) {
 		t.Fatal("bound addr")
 	}
 }
+
+func TestRebindMovesPacketConn(t *testing.T) {
+	s := startSink(t, Config{})
+	old := s.Addr().String()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := pc.LocalAddr().String()
+	_ = pc.Close()
+	if err := s.Rebind(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Addr().String(); got != next {
+		t.Fatalf("addr %s want %s", got, next)
+	}
+	req := snmptest.MustEncodeInform(t, "public", 21, coldStart())
+	m := snmptest.MustExchange(t, next, req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse {
+		t.Fatalf("INFORM after rebind %+v", p)
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("old PacketConn must be closed: %v", err)
+	}
+	_ = hold.Close()
+}
+
+func TestRebindEmptyUnbinds(t *testing.T) {
+	s := startSink(t, Config{})
+	old := s.Addr().String()
+	if err := s.Rebind(""); err != nil {
+		t.Fatal(err)
+	}
+	if s.Bound() {
+		t.Fatal("empty addr must unbind")
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("unbound address must be free: %v", err)
+	}
+	_ = hold.Close()
+}

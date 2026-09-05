@@ -81,20 +81,40 @@ func listenAddress(s string) bool {
 }
 
 func resolveTrapListen(flag string, st *model.State) (addr string, enabled bool) {
+	yamlAddr, on := "", false
+	if st != nil {
+		yamlAddr, on = st.Spec.Listeners.Traps.Address, st.Spec.Listeners.Traps.Enabled
+		if yamlAddr == "" && on {
+			yamlAddr = config.DefaultTrapAddress
+		}
+	}
+	addr = resolveUDP(flag, yamlAddr, on)
+	return addr, addr != ""
+}
+
+func resolveUDP(flag, yamlAddr string, enabled bool) string {
 	switch {
 	case listenOff(flag):
-		return "", false
+		return ""
 	case listenAddress(flag):
-		return strings.TrimSpace(flag), true
+		return strings.TrimSpace(flag)
+	case !enabled:
+		return ""
 	default:
-		if st == nil || !st.Spec.Listeners.Traps.Enabled {
-			return "", false
-		}
-		addr = st.Spec.Listeners.Traps.Address
-		if addr == "" {
-			addr = config.DefaultTrapAddress
-		}
-		return addr, true
+		return yamlAddr
+	}
+}
+
+func desiredUDP(flags serveFlags, snap *snapshot.Snapshot) app.DesiredListeners {
+	var agentAddr, trapAddr string
+	agentOn, trapOn := false, false
+	if snap != nil {
+		agentAddr, agentOn = snap.AgentAddress, snap.AgentEnabled
+		trapAddr, trapOn = snap.TrapAddress, snap.TrapsEnabled
+	}
+	return app.DesiredListeners{
+		AgentUDP: resolveUDP(flags.SNMPListen, agentAddr, agentOn),
+		TrapUDP:  resolveUDP(flags.TrapListen, trapAddr, trapOn),
 	}
 }
 
@@ -144,24 +164,14 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		svc.SetLogger(logger)
 	}
 
-	addr := strings.TrimSpace(flags.SNMPListen)
-	switch {
-	case listenOff(addr):
+	desired := desiredUDP(flags, snap)
+	if desired.AgentUDP == "" {
 		_, _ = fmt.Fprintln(stderr, "labsnmp serve: agent listener is disabled")
 		return 1
-	case addr == "":
-		if !st.Spec.Listeners.Agent.Enabled {
-			_, _ = fmt.Fprintln(stderr, "labsnmp serve: agent listener is disabled")
-			return 1
-		}
-		addr = st.Spec.Listeners.Agent.Address
-		if addr == "" {
-			addr = config.DefaultAgentAddress
-		}
 	}
 
 	srv, err := snmpagent.New(snmpagent.Config{
-		Addr:    addr,
+		Addr:    desired.AgentUDP,
 		Store:   svc.Snapshots(),
 		Overlay: svc.Overlay(),
 		Queries: svc.Queries(),
@@ -173,30 +183,27 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 		return 1
 	}
-	if err := srv.Start(); err != nil {
+
+	sink, err := newTrapSink(desired.TrapUDP, svc.Snapshots(), snap, svc.Traps(), metrics, logger)
+	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+		shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = srv.Shutdown(shctx)
+		cancel()
 		return 1
 	}
+	dp := &dataPlane{agent: srv, sink: sink}
+	if err := dp.Sync(desired); err != nil {
+		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+		shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = sink.Shutdown(shctx)
+		_ = srv.Shutdown(shctx)
+		cancel()
+		return 1
+	}
+	svc.SetDataPlaneSync(dp.Sync)
 	_, _ = fmt.Fprintf(stdout, "labsnmp snmp listen=%s\n", srv.Addr().String())
-
-	var sink *snmpsink.Server
-	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
-	if trapOn {
-		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps(), metrics, logger)
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
-			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = srv.Shutdown(shctx)
-			cancel()
-			return 1
-		}
-		if err := sink.Start(); err != nil {
-			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
-			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = srv.Shutdown(shctx)
-			cancel()
-			return 1
-		}
+	if sink.Bound() {
 		_, _ = fmt.Fprintf(stdout, "labsnmp trap listen=%s\n", sink.Addr().String())
 	} else {
 		_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
@@ -206,10 +213,12 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var mcpSrv *mcp.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	svc.SetHealth(func() observability.Facts {
+		want := dp.last()
 		return observability.Facts{
 			AgentBound: srv.Bound(),
+			AgentOff:   want.AgentUDP == "",
 			TrapBound:  sink != nil && sink.Bound(),
-			TrapOff:    !trapOn,
+			TrapOff:    want.TrapUDP == "",
 			MgmtBound:  restSrv != nil && restSrv.Bound(),
 			MgmtOff:    mgmtOff,
 		}
