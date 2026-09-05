@@ -3,6 +3,7 @@ package snmpsink
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -92,6 +93,16 @@ func startSink(t *testing.T, cfg Config) *Server {
 
 func dst(s *Server) string {
 	return s.Addr().String()
+}
+
+func wrapPacketConn(t *testing.T, s *Server, wrap func(net.PacketConn) net.PacketConn) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.udp == nil {
+		t.Fatal("no PacketConn")
+	}
+	s.udp = wrap(s.udp)
 }
 
 func waitOne(t *testing.T, s *Server) *store.TrapRecord {

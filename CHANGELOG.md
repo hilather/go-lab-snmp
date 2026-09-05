@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Fixed
 
-- None.
+- INFORM acknowledgements increment `InformAck` before `WriteTo` so the counter cannot race the reply (`internal/snmpsink`). Store-then-ack is unchanged (ADR 0007).
 
 ### Removed
 
