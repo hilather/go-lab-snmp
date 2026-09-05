@@ -1,6 +1,6 @@
 # API-001 — REST /v1
 
-Status: not-started
+Status: in-progress
 Depends: APP-001
 Owns: internal/control/rest, api/openapi
 

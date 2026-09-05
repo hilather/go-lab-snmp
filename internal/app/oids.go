@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
@@ -80,18 +81,85 @@ func (s *App) GetOID(ctx context.Context, actor Actor, in OIDGetIn) (*OIDResult,
 	return s.readOIDLocked(in.Map, oid), nil
 }
 
+func (s *App) Preview(ctx context.Context, actor Actor, in PreviewIn) (*OIDResult, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	community := strings.TrimSpace(in.Community)
+	user := strings.TrimSpace(in.User)
+	if community != "" && user != "" {
+		return nil, domainerr.ValidationFailed("community and user are mutually exclusive",
+			domainerr.FieldViolation{Path: "community", Code: "invalid_value", Message: "provide community or user, not both"})
+	}
+	if community == "" && user == "" {
+		return nil, domainerr.ValidationFailed("community or user is required",
+			domainerr.FieldViolation{Path: "community", Code: "required", Message: "query param community or user is required"})
+	}
+	if in.OID == "" {
+		return nil, domainerr.ValidationFailed("oid is required",
+			domainerr.FieldViolation{Path: "oid", Code: "required", Message: "query param oid is required"})
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap, err := s.active()
+	if err != nil {
+		return nil, err
+	}
+	copied, err := cloneState(snap.Canonical)
+	if err != nil {
+		return nil, err
+	}
+	mapName := ""
+	switch {
+	case community != "":
+		for _, c := range copied.Spec.Communities {
+			if c.Name == community {
+				mapName = c.Map
+				break
+			}
+		}
+		if mapName == "" {
+			return nil, domainerr.NotFound("community " + community + " not found")
+		}
+	default:
+		for _, u := range copied.Spec.Users {
+			if u.Name == user {
+				mapName = u.Map
+				break
+			}
+		}
+		if mapName == "" {
+			return nil, domainerr.NotFound("user " + user + " not found")
+		}
+	}
+	if snap.Maps[mapName] == nil {
+		return nil, domainerr.NotFound("map " + mapName + " not found")
+	}
+	oid, err := mibtree.ParseOID(in.OID)
+	if err != nil {
+		return nil, domainerr.ValidationFailed("invalid oid",
+			domainerr.FieldViolation{Path: "oid", Code: "invalid_value", Message: err.Error()})
+	}
+	return s.readOIDLocked(mapName, oid), nil
+}
+
 func (s *App) readOIDLocked(mapName string, oid mibtree.OID) *OIDResult {
 	live := s.snaps.Load()
 	tree := live.Maps[mapName]
-	res := tree.Get(oid)
-	out := &OIDResult{OID: oid.String(), Exception: res.Exception.String()}
+	return s.resultToOID(mapName, tree.Get(oid))
+}
+
+func (s *App) resultToOID(mapName string, res mibtree.Result) *OIDResult {
+	live := s.snaps.Load()
+	out := &OIDResult{}
+	if len(res.OID) > 0 {
+		out.OID = res.OID.String()
+	}
 	if res.Exception != mibtree.NoException {
-		if res.OID != nil {
-			out.OID = res.OID.String()
-		}
+		out.Exception = res.Exception.String()
 		return out
 	}
-	out.OID = res.OID.String()
 	if res.Value.ValueFrom == model.ValueFromUptime {
 		out.Value = mibtree.Value{Type: model.TypeTimeTicks, Unsigned: uint64(live.UptimeTicks()), ValueFrom: model.ValueFromUptime}
 		return out

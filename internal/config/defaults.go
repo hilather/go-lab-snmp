@@ -3,6 +3,7 @@ package config
 const (
 	DefaultAgentAddress       = ":161"
 	DefaultTrapAddress        = ":162"
+	DefaultMgmtAddress        = ":8088"
 	DefaultRESTPath           = "/v1"
 	DefaultMCPPath            = "/mcp"
 	DefaultBodyLimit          = int64(1 << 20)

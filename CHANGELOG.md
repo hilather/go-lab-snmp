@@ -4,6 +4,7 @@
 
 ### Added
 
+- REST `/v1` adapter (`internal/control/rest`) over `app.Service` plus the frozen capability table (`internal/capabilities`). Every PARITY_REQUIRED route, unauthenticated health live/ready, `application/problem+json` (`urn:labsnmp:error:<code>`), K20 features catalog, generated `api/openapi/v1.json` and `api/capabilities/v1.json`. `--management-listen` binds HTTP (default still off). Auth is a stub until SEC-001 (API-001).
 - Snapshot compile and atomic swap (`internal/compiler`, `internal/snapshot`) plus HTTP-less `internal/app` plan/apply/reset. Closed apply ops from docs/04, `expectedRevision` + idempotency, `oids:set` sharing the SNMP SET overlay, and Reset that rereads bootstrap / drops overlay / wipes traps+queries without writing the file (APP-001).
 - UDP/162 trap/inform sink (`internal/snmpsink` + `internal/store` ring): `ListenPacket`, TRAPv1 / SNMPv2-TRAP / INFORM including v3 USM, INFORM `WriteTo` (never Dial), bounded ring with wait/wipe, `acceptUnauthenticated` default false, ULID ids, and `labsnmp serve --trap-listen` (empty uses YAML `traps.enabled` / `traps.address`; `off` disables). Ready’s trap clause is on (TRAP-001).
 - UDP/161 agent (`internal/snmpagent`): `ListenPacket`, CIDR+rate admission, community isolation, GET/GETNEXT/GETBULK/SET with two-phase overlay SET, `valueFrom: uptime` (1s → TimeTicks 100), and thin `labsnmp serve --config --snmp-listen` with `--management-listen` default off. Loads `compiler.Compile` + `snapshot.Store` (APP-001; AGENT-001 hand-wire removed).

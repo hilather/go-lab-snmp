@@ -51,8 +51,9 @@ LabSNMP is a laboratory SNMPv1/v2c/v3 agent with a receive-only
 trap/inform sink. validate and canonicalize load a fail-closed
 labsnmp.dev/v1alpha1 document. serve binds the agent and trap UDP
 sockets. --trap-listen empty uses YAML traps.address; off disables.
---management-listen defaults off and rejects a listen address until
-DEP-001. spec.ui.enabled false keeps GET / as 404 problem+json.
+--management-listen defaults off. YAML management.address does not
+bind unless this flag is an address. spec.ui.enabled false keeps
+GET / as 404 problem+json. Auth on /v1 is a stub until SEC-001.
 
 Commands:
   version         print build and protocol metadata

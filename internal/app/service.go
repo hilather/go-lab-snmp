@@ -25,16 +25,23 @@ type Service interface {
 
 	ListMaps(ctx context.Context, actor Actor) (*MapList, error)
 	GetMap(ctx context.Context, actor Actor, name string) (*model.MapSpec, error)
+	QueryMap(ctx context.Context, actor Actor, name string, in MapQueryIn) (*MapQueryResult, error)
 	ListCommunities(ctx context.Context, actor Actor) (*CommunityList, error)
 	ListUsers(ctx context.Context, actor Actor) (*UserList, error)
 
 	SetOID(ctx context.Context, actor Actor, in OIDSetIn) (*OIDResult, error)
 	GetOID(ctx context.Context, actor Actor, in OIDGetIn) (*OIDResult, error)
+	Preview(ctx context.Context, actor Actor, in PreviewIn) (*OIDResult, error)
 
 	ListQueries(ctx context.Context, actor Actor) (*QueryList, error)
+	Stats(ctx context.Context, actor Actor) (*Stats, error)
 
 	ListTraps(ctx context.Context, actor Actor, q store.ListQuery) (*TrapList, error)
 	GetTrap(ctx context.Context, actor Actor, id string) (*store.TrapRecord, error)
+	GetTrapRaw(ctx context.Context, actor Actor, id string) ([]byte, error)
 	WaitTraps(ctx context.Context, actor Actor, in TrapWaitIn) (*store.TrapRecord, error)
 	ClearTraps(ctx context.Context, actor Actor) error
+
+	QueryAudit(ctx context.Context, actor Actor, q AuditQuery) (*AuditList, error)
+	GetAudit(ctx context.Context, actor Actor, id string) (*AuditEvent, error)
 }

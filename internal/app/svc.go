@@ -267,6 +267,42 @@ func (s *App) Features(ctx context.Context, actor Actor) (*FeatureList, error) {
 	return &FeatureList{Items: Features()}, nil
 }
 
+func (s *App) Stats(ctx context.Context, actor Actor) (*Stats, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	out := &Stats{OverlayGeneration: s.storeGeneration()}
+	if s.traps != nil {
+		out.Traps = s.traps.Stats()
+	}
+	if s.queries != nil {
+		out.Queries = s.queries.Len()
+	}
+	return out, nil
+}
+
+func (s *App) QueryAudit(ctx context.Context, actor Actor, q AuditQuery) (*AuditList, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	_ = q
+	return &AuditList{Events: []AuditEvent{}}, nil
+}
+
+func (s *App) GetAudit(ctx context.Context, actor Actor, id string) (*AuditEvent, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	if id == "" {
+		return nil, domainerr.ValidationFailed("id is required",
+			domainerr.FieldViolation{Path: "id", Code: "required", Message: "id is required"})
+	}
+	return nil, domainerr.NotFound("audit event " + id + " not found")
+}
+
 func (s *App) ConfigSchema(ctx context.Context, actor Actor) ([]byte, error) {
 	if err := s.requireCtx(ctx); err != nil {
 		return nil, err

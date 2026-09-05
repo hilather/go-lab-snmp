@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
+	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/store"
@@ -129,20 +130,58 @@ type DiffEntry struct {
 
 // FeatureApplyLive and FeatureApplyResetOnly are the only apply values.
 const (
-	FeatureApplyLive      = "live"
-	FeatureApplyResetOnly = "reset-only"
+	FeatureApplyLive      = capabilities.FeatureApplyLive
+	FeatureApplyResetOnly = capabilities.FeatureApplyResetOnly
 )
 
 // Feature is one frozen live vs reset-only row from docs/04 / K20.
-type Feature struct {
-	ID    string `json:"id"`
-	Apply string `json:"apply"`
-	Path  string `json:"path"`
-}
+type Feature = capabilities.Feature
 
 // FeatureList is GET /v1/features.
 type FeatureList struct {
 	Items []Feature
+}
+
+// MapQueryIn is POST /v1/maps/{name}:query. PDU is get, getNext, or getBulk.
+type MapQueryIn struct {
+	PDU            string
+	OIDs           []string
+	NonRepeaters   int
+	MaxRepetitions int
+}
+
+// MapQueryResult is overlay-aware simulated GET/GETNEXT/GETBULK bindings.
+type MapQueryResult struct {
+	Bindings []OIDResult
+}
+
+// PreviewIn is GET /v1/preview/get. Community or User is a YAML row id.
+type PreviewIn struct {
+	Community string
+	User      string
+	OID       string
+}
+
+// Stats is GET /v1/stats.
+type Stats struct {
+	Traps             store.TrapStats
+	OverlayGeneration uint64
+	Queries           int
+}
+
+// AuditQuery is GET /v1/audit. SEC-001 fills the ring.
+type AuditQuery struct {
+	Limit int
+}
+
+// AuditEvent is one in-memory audit row. SEC-001 owns the fields.
+type AuditEvent struct {
+	ID string `json:"id"`
+}
+
+// AuditList is GET /v1/audit.
+type AuditList struct {
+	Events []AuditEvent
 }
 
 // MapList is GET /v1/maps.

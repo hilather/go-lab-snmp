@@ -127,6 +127,14 @@ func Unauthenticated(message string) *Error {
 	return New(CodeUnauthenticated, message)
 }
 
+func Unauthorized(message string) *Error {
+	return New(CodeUnauthorized, message)
+}
+
+func OriginNotAllowed(message string) *Error {
+	return New(CodeOriginNotAllowed, message)
+}
+
 func RateLimited(message string) *Error {
 	return New(CodeRateLimited, message)
 }

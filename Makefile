@@ -71,7 +71,13 @@ test-fuzz-smoke:
 	$(GO) test ./internal/snmpwire -fuzz=FuzzDecode -fuzztime=10s -count=1
 	$(GO) test ./internal/snmpwire -fuzz=FuzzParseOID -fuzztime=5s -count=1
 
-generate verify-generated test-parity \
+generate:
+	$(GO) run ./scripts/generate
+
+verify-generated:
+	$(GO) run ./scripts/generate -check
+
+test-parity \
 test-container security-scan web-install web-test web-build web-embed:
 	@echo 'make $@: not implemented' >&2
 	@false

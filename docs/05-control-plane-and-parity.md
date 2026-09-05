@@ -7,9 +7,16 @@ Last reviewed: 2026-09-04
 REST and MCP are adapters over one `internal/app.Service`. They must
 not call each other. Implementation order CFG → APP → API → SEC → MCP.
 
+Internal registry keys follow the family dotted form of the table
+(`version.get`, `maps.list`, `oids.set`, …). MCP tools are exactly the
+`snmp_*` names below. Do not invent a second capability ID.
+
 ## Frozen capabilities
 
-REST_ONLY_PROTOCOL: health live/ready, session, metrics scrape, SPA.
+REST_ONLY_PROTOCOL: health live/ready (`health.live`, `health.ready`),
+session (`session.create`/`get`/`delete`), metrics scrape (`metrics.get`),
+SPA. Health live/ready are unauthenticated. Session and metrics wait
+for SEC-001 / OBS-001; SPA waits for UI-001.
 
 PARITY_REQUIRED:
 
@@ -30,10 +37,9 @@ PARITY_REQUIRED:
 | `GET /v1/maps/{name}` | `snmp_map_get` | `snmp.read` |
 | `POST /v1/maps/{name}:query` | `snmp_map_query` | `snmp.read` |
 | `POST /v1/maps/{name}/oids:set` | `snmp_oid_set` | `snmp.write` |
-
-| `POST /v1/maps/{name}/oids:get` | `snmp_oid_get` | | `snmp.read` |
-| `GET /v1/queries` | `snmp_queries_list` | `labsnmp://queries` | `snmp.read` |
-| `GET /v1/preview/get` | `snmp_preview_get` | | `snmp.read` |
+| `POST /v1/maps/{name}/oids:get` | `snmp_oid_get` | `snmp.read` |
+| `GET /v1/queries` | `snmp_queries_list` | `snmp.read` |
+| `GET /v1/preview/get` | `snmp_preview_get` | `snmp.read` |
 | `GET /v1/communities` | `snmp_communities_list` | `snmp.read` |
 | `GET /v1/users` | `snmp_users_list` | `snmp.read` |
 | `GET /v1/traps` | `snmp_traps_list` | `snmp.read` |
@@ -47,7 +53,8 @@ PARITY_REQUIRED:
 
 Resources: `labsnmp://state`, `labsnmp://maps`, `labsnmp://maps/{name}`,
 `labsnmp://traps`, `labsnmp://traps/{id}`, `labsnmp://stats`,
-`labsnmp://capabilities`, `labsnmp://status`, `labsnmp://features`.
+`labsnmp://capabilities`, `labsnmp://status`, `labsnmp://features`,
+`labsnmp://queries`.
 
 `snmp_map_query` simulates GET/GETNEXT/GETBULK against a named map
 without sending a datagram (agent-side preview).
@@ -60,9 +67,12 @@ Administrator has all. Reader has `snmp.read`.
 
 ## Errors
 
-`application/problem+json` with `code`. Frozen codes include
+`application/problem+json` (RFC 9457) with `code`. Frozen codes include
 `validation_failed`, `unknown_field`, `reserved_key`, `immutable_field`,
 `revision_mismatch`, `not_found`, `not_writable`, `wrong_type`,
 `wait_timeout`, `store_wiped`, `unauthorized`, `forbidden`,
 `origin_not_allowed`, `tls_unsupported`, `no_such_instance`,
-`end_of_mib_view`.
+`end_of_mib_view`, `usm_alg_unsupported`. Family HTTP extras:
+`method_not_allowed`, `rate_limited`, `internal_error`.
+
+Problem type URN: `urn:labsnmp:error:<code>` with underscores as hyphens.

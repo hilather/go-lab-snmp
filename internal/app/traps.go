@@ -41,6 +41,25 @@ func (s *App) GetTrap(ctx context.Context, actor Actor, id string) (*store.TrapR
 	return rec, nil
 }
 
+func (s *App) GetTrapRaw(ctx context.Context, actor Actor, id string) ([]byte, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	if id == "" {
+		return nil, domainerr.ValidationFailed("id is required",
+			domainerr.FieldViolation{Path: "id", Code: "required", Message: "id is required"})
+	}
+	if s.traps == nil {
+		return nil, domainerr.NotFound("trap " + id + " not found")
+	}
+	raw, err := s.traps.Raw(id)
+	if err != nil {
+		return nil, asDomain(err)
+	}
+	return raw, nil
+}
+
 func (s *App) WaitTraps(ctx context.Context, actor Actor, in TrapWaitIn) (*store.TrapRecord, error) {
 	if err := s.requireCtx(ctx); err != nil {
 		return nil, err

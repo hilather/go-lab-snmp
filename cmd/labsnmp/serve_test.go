@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -134,24 +135,70 @@ func TestServeTrapListenOffUnbound(t *testing.T) {
 	}
 }
 
-func TestServeRejectsManagementListen(t *testing.T) {
+func TestServeBindsManagementListen(t *testing.T) {
 	t.Chdir(repoRoot(t))
-	cfg := "testdata/config/valid/full.yaml"
-	var stdout, stderr bytes.Buffer
-	code := serveWithContext(context.Background(), []string{
-		"--config", cfg,
-		"--snmp-listen", "127.0.0.1:0",
-		"--trap-listen", "off",
-		"--management-listen", ":8088",
-	}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/full.yaml",
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", "off",
+			"--management-listen", "127.0.0.1:0",
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var mgmt string
+	deadline := time.After(5 * time.Second)
+	for mgmt == "" {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp management listen=") {
+				mgmt = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp management listen="))
+			}
+		case <-deadline:
+			t.Fatal("missing management listen line")
+		}
 	}
-	if !strings.Contains(stderr.String(), "--management-listen") {
-		t.Fatalf("stderr %q", stderr.String())
+	resp, err := http.Get("http://" + mgmt + "/v1/health/live")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(stdout.String(), "snmp listen=") {
-		t.Fatal("must not bind the agent when management-listen is rejected")
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("live %d", resp.StatusCode)
+	}
+	resp, err = http.Get("http://" + mgmt + "/v1/version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("version %d (auth stub must allow unauthenticated /v1)", resp.StatusCode)
+	}
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
 	}
 }
 

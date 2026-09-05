@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/control/rest"
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
@@ -35,7 +38,7 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	path := fs.String("config", "", "path to bootstrap YAML or JSON")
 	snmpListen := fs.String("snmp-listen", "", "override agent listen address (empty uses YAML)")
 	trapListen := fs.String("trap-listen", "", "override trap listen address (empty uses YAML; off disables)")
-	mgmtListen := fs.String("management-listen", "off", "management listen; off until DEP-001 (address rejected)")
+	mgmtListen := fs.String("management-listen", "off", "management listen; off/none/- leaves it unbound")
 	shutdown := fs.Duration("shutdown-timeout", snmpagent.DefaultShutdownWait, "graceful shutdown deadline")
 	pidFile := fs.String("pid-file", "", "write process id after listeners bind")
 	if err := fs.Parse(args); err != nil {
@@ -98,11 +101,6 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	if err != nil {
 		return 2
 	}
-	if listenAddress(flags.ManagementListen) {
-		_, _ = fmt.Fprintln(stderr, "labsnmp serve: --management-listen is not implemented until DEP-001")
-		return 2
-	}
-
 	svc, err := app.Boot(ctx, app.Options{
 		BootstrapPath:      flags.Config,
 		SNMPListenOverride: flags.SNMPListen,
@@ -179,7 +177,61 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
 	}
 
-	_, _ = fmt.Fprintln(stdout, "labsnmp management: not bound")
+	var restSrv *rest.Server
+	mgmtOff := !listenAddress(flags.ManagementListen)
+	if !mgmtOff {
+		origins := []string{}
+		bodyLimit := config.DefaultBodyLimit
+		if st != nil {
+			origins = st.Spec.Management.AllowedOrigins
+			if st.Spec.Management.BodyLimit > 0 {
+				bodyLimit = st.Spec.Management.BodyLimit
+			}
+		}
+		restSrv, err = rest.New(rest.Config{
+			Addr:           flags.ManagementListen,
+			Service:        svc,
+			AllowedOrigins: origins,
+			MaxBodyBytes:   bodyLimit,
+			RatePerSec:     0,
+			Live:           func() bool { return true },
+			Ready: func() bool {
+				if svc.Active() == nil {
+					return false
+				}
+				if !srv.Bound() {
+					return false
+				}
+				if trapOn && (sink == nil || !sink.Bound()) {
+					return false
+				}
+				return true
+			},
+		})
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if sink != nil {
+				_ = sink.Shutdown(shctx)
+			}
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		svc.SetHTTPRebind(restSrv.Rebind)
+		go func() {
+			if err := restSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				_, _ = fmt.Fprintf(stderr, "labsnmp management: %v\n", err)
+			}
+		}()
+		deadline := time.Now().Add(2 * time.Second)
+		for !restSrv.Bound() && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		_, _ = fmt.Fprintf(stdout, "labsnmp management listen=%s\n", restSrv.Addr())
+	} else {
+		_, _ = fmt.Fprintln(stdout, "labsnmp management: not bound")
+	}
 
 	if flags.PIDFile != "" {
 		if err := os.WriteFile(flags.PIDFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
@@ -194,6 +246,9 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 	shctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
+	if restSrv != nil {
+		_ = restSrv.Shutdown(shctx)
+	}
 	if sink != nil {
 		_ = sink.Shutdown(shctx)
 	}
