@@ -6,7 +6,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Added
 
-- None.
+- GHCR publish on `v*` tags is a multi-arch manifest list (`linux/amd64`, `linux/arm64`). CI unit jobs stay amd64; arm64 is publish-only. `latest` remains non-prerelease tags only. The digest of the manifest list is the pin.
 
 ### Changed
 

@@ -27,8 +27,11 @@ Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
 `internal/web/dist`. `GET /` is 200 SPA HTML when `spec.ui.enabled`
 is true; 404 `application/problem+json` when false. Tag-gate + GHCR
 publish is `.github/workflows/release.yml` on `v*` after required CI
-is green. TLS-001 stays deferred (`dtls.enabled` / `tcp.enabled`
-true still reject).
+is green. v1.1 tags publish a multi-arch manifest list
+(`linux/amd64`, `linux/arm64`); arm64 is publish-only and CI unit
+jobs stay amd64. The digest of the manifest list is the pin.
+`latest` still only on non-prerelease tags. TLS-001 stays deferred
+(`dtls.enabled` / `tcp.enabled` true still reject).
 
 ## Appliance smoke vs integrator
 
