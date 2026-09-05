@@ -11,15 +11,11 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/usm"
 )
 
-func (s *Server) handle(pkt []byte, addr net.Addr) {
-	if s == nil || s.cfg.Store == nil {
+func (s *Server) handle(pc net.PacketConn, pkt []byte, addr net.Addr) {
+	if s == nil || s.cfg.Store == nil || pc == nil {
 		return
 	}
 	s.syncAdmission()
-	pc := s.conn()
-	if pc == nil {
-		return
-	}
 	if int64(len(pkt)) > s.maxMessageBytes() {
 		s.Dropped.Add(1)
 		s.observeTrap("", "oversize")

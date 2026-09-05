@@ -8,16 +8,12 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 )
 
-func (s *Server) handle(pkt []byte, addr net.Addr) {
+func (s *Server) handle(pc net.PacketConn, pkt []byte, addr net.Addr) {
 	rt := s.view()
-	if s == nil || rt == nil {
+	if s == nil || rt == nil || pc == nil {
 		return
 	}
 	s.syncAdmission(rt)
-	pc := s.conn()
-	if pc == nil {
-		return
-	}
 	if int64(len(pkt)) > rt.MaxMessageBytes {
 		s.Dropped.Add(1)
 		s.observePDU("", "", "oversize")

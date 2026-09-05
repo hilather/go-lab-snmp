@@ -230,7 +230,7 @@ type DesiredListeners struct {
 }
 
 // SetDataPlaneSync installs the bind-all-new hook. fn must bind from
-// desired and must not re-read Active() (still the pre-Swap snapshot).
+// desired and must not re-read Active().
 func (s *App) SetDataPlaneSync(fn func(desired DesiredListeners) error) {
 	if s == nil {
 		return

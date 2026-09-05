@@ -268,12 +268,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (s *Server) conn() net.PacketConn {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.udp
-}
-
 func (s *Server) syncAdmission(rt *Runtime) {
 	if s == nil || rt == nil {
 		return
@@ -326,7 +320,7 @@ func (s *Server) serveUDP(gen uint64) {
 		go func() {
 			defer s.wg.Done()
 			defer func() { <-s.inflight }()
-			s.handle(pkt, addr)
+			s.handle(pc, pkt, addr)
 		}()
 	}
 }
