@@ -199,13 +199,26 @@ func newTrapSink(addr string, st *model.State, rt *snmpagent.Runtime) (*snmpsink
 	})
 	comms := make(map[string]*snmpsink.Community, len(rt.Communities))
 	for k, c := range rt.Communities {
-		comms[k] = &snmpsink.Community{Name: c.Name, Wire: append([]byte(nil), c.Wire...)}
+		vers := make(map[string]bool, len(c.Versions))
+		for vk, vv := range c.Versions {
+			vers[vk] = vv
+		}
+		comms[k] = &snmpsink.Community{
+			Name:     c.Name,
+			Wire:     append([]byte(nil), c.Wire...),
+			Versions: vers,
+		}
+	}
+	agentVers := make(map[string]bool, len(rt.Versions))
+	for vk, vv := range rt.Versions {
+		agentVers[vk] = vv
 	}
 	return snmpsink.New(snmpsink.Config{
 		Addr:                  addr,
 		Store:                 ring,
 		Communities:           comms,
 		Engine:                rt.Engine,
+		Versions:              agentVers,
 		AcceptUnauthenticated: st.Spec.Traps.AcceptUnauthenticated,
 		RawRetain:             st.Spec.Traps.RawRetain,
 		MaxMessageBytes:       rt.MaxMessageBytes,

@@ -44,6 +44,10 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 		s.Dropped.Add(1)
 		return
 	}
+	if !s.versionOK(versionLabel(msg.Version)) {
+		s.Dropped.Add(1)
+		return
+	}
 
 	switch msg.Version {
 	case snmpwire.VersionV1, snmpwire.VersionV2c:
@@ -58,12 +62,11 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
 	c := s.lookupCommunity(msg.Community)
 	if c == nil {
-		s.AuthFail.Add(1)
-		if !s.cfg.AcceptUnauthenticated {
-			s.Dropped.Add(1)
-			return
-		}
-		s.storePDU(raw, addr, msg, "", "", "unauthenticated")
+		s.authFail(raw, addr, msg)
+		return
+	}
+	if !communityVersionOK(c, versionLabel(msg.Version)) {
+		s.Dropped.Add(1)
 		return
 	}
 	req := msg.RequestPDU()
@@ -79,8 +82,11 @@ func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmp
 		s.authFail(raw, addr, msg)
 		return
 	}
-	in, report := s.openV3(raw, msg)
+	in, report, discovery := s.openV3(raw, msg)
 	if len(report) > 0 {
+		if !discovery {
+			s.authFail(raw, addr, msg)
+		}
 		ack(pc, addr, report)
 		return
 	}
@@ -96,23 +102,23 @@ func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmp
 	s.storeAndAck(pc, addr, raw, in.Message, "", in.User.Name, "")
 }
 
-func (s *Server) openV3(raw []byte, msg snmpwire.Message) (*usm.Incoming, []byte) {
+func (s *Server) openV3(raw []byte, msg snmpwire.Message) (in *usm.Incoming, report []byte, discovery bool) {
 	eng := s.cfg.Engine
-	if bytes.Equal(msg.USM.EngineID, eng.ID()) || len(msg.USM.EngineID) == 0 {
+	if len(msg.USM.EngineID) == 0 || bytes.Equal(msg.USM.EngineID, eng.ID()) {
 		out := eng.Open(raw, msg)
 		if len(out.Report) > 0 {
-			return nil, out.Report
+			return nil, out.Report, len(msg.USM.EngineID) == 0
 		}
 		if out.Incoming != nil {
-			return out.Incoming, nil
+			return out.Incoming, nil, false
 		}
-		return nil, nil
+		return nil, nil, false
 	}
 	out := eng.OpenNotification(raw, msg)
 	if out.Incoming != nil {
-		return out.Incoming, nil
+		return out.Incoming, nil, false
 	}
-	return nil, nil
+	return nil, nil, false
 }
 
 func (s *Server) authFail(raw []byte, addr net.Addr, msg snmpwire.Message) {
@@ -121,8 +127,7 @@ func (s *Server) authFail(raw []byte, addr net.Addr, msg snmpwire.Message) {
 		s.Dropped.Add(1)
 		return
 	}
-	user := string(msg.USM.UserName)
-	s.storePDU(raw, addr, msg, "", user, "unauthenticated")
+	s.storeUnauthTrap(raw, addr, msg, unauthWarning(msg))
 }
 
 func (s *Server) storeAndAck(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message, community, user, warning string) {
@@ -134,6 +139,24 @@ func (s *Server) storeAndAck(pc net.PacketConn, addr net.Addr, raw []byte, msg s
 		return
 	}
 	s.ackInform(pc, addr, msg, *req)
+}
+
+func (s *Server) storeUnauthTrap(raw []byte, addr net.Addr, msg snmpwire.Message, warning string) {
+	req := msg.RequestPDU()
+	if req == nil || !trapPDU(req.Type) {
+		s.Dropped.Add(1)
+		return
+	}
+	s.storePDU(raw, addr, msg, "", "", warning)
+}
+
+func unauthWarning(msg snmpwire.Message) string {
+	if msg.Version == snmpwire.VersionV3 {
+		if n := string(msg.USM.UserName); n != "" {
+			return "unauthenticated user " + n
+		}
+	}
+	return "unauthenticated"
 }
 
 func (s *Server) storePDU(raw []byte, addr net.Addr, msg snmpwire.Message, community, user, warning string) bool {
@@ -215,6 +238,20 @@ func (s *Server) lookupCommunity(wire []byte) *Community {
 		return nil
 	}
 	return s.cfg.Communities[string(wire)]
+}
+
+func (s *Server) versionOK(label string) bool {
+	if s == nil || len(s.cfg.Versions) == 0 {
+		return true
+	}
+	return s.cfg.Versions[label]
+}
+
+func communityVersionOK(c *Community, label string) bool {
+	if c == nil || len(c.Versions) == 0 {
+		return true
+	}
+	return c.Versions[label]
 }
 
 func trapPDU(t snmpwire.PDUType) bool {

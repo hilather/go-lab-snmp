@@ -30,8 +30,9 @@ func (systemClock) Now() time.Time { return time.Now() }
 
 // Community is a compiled v1/v2c identity. Name is the DNS-label row id.
 type Community struct {
-	Name string
-	Wire []byte
+	Name     string
+	Wire     []byte
+	Versions map[string]bool
 }
 
 // Config is the UDP/162 listener configuration.
@@ -40,6 +41,7 @@ type Config struct {
 	Store                 *store.TrapRing
 	Communities           map[string]*Community // keyed by wire community string
 	Engine                *usm.Engine
+	Versions              map[string]bool // spec.agent.versions; empty allows all
 	AcceptUnauthenticated bool
 	RawRetain             bool
 	MaxMessageBytes       int64

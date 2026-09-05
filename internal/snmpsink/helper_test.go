@@ -59,7 +59,16 @@ func startSink(t *testing.T, cfg Config) *Server {
 	}
 	if cfg.Communities == nil {
 		cfg.Communities = map[string]*Community{
-			"public": {Name: "public", Wire: []byte("public")},
+			"public": {
+				Name:     "public",
+				Wire:     []byte("public"),
+				Versions: map[string]bool{model.VersionV1: true, model.VersionV2c: true},
+			},
+		}
+	}
+	if cfg.Versions == nil {
+		cfg.Versions = map[string]bool{
+			model.VersionV1: true, model.VersionV2c: true, model.VersionV3: true,
 		}
 	}
 	cfg.RawRetain = true

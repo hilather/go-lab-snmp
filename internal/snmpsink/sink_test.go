@@ -114,11 +114,24 @@ func TestAcceptUnauthenticatedStores(t *testing.T) {
 	req := snmptest.MustEncodeTrapV2(t, "nope", 1, coldStart())
 	snmptest.MustSend(t, dst(s), req)
 	rec := waitOne(t, s)
-	if rec.Community != "" {
-		t.Fatalf("must not store wire community: %+v", rec)
+	if rec.Community != "" || rec.User != "" {
+		t.Fatalf("must not store wire identity: %+v", rec)
 	}
 	if rec.ParseWarning == "" {
 		t.Fatal("parseWarning")
+	}
+}
+
+func TestAcceptUnauthenticatedDoesNotStoreGet(t *testing.T) {
+	s := startSink(t, Config{AcceptUnauthenticated: true})
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "nope", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
+	snmptest.MustSend(t, dst(s), req)
+	time.Sleep(50 * time.Millisecond)
+	if s.AuthFail.Load() < 1 {
+		t.Fatal("AuthFail")
+	}
+	if s.Store().Stats().Messages != 0 {
+		t.Fatal("GET must not enter the trap inbox")
 	}
 }
 
@@ -195,6 +208,127 @@ func TestV3UnknownUserDrop(t *testing.T) {
 	}
 	if s.Store().Stats().Messages != 0 {
 		t.Fatal("unknown user stored")
+	}
+}
+
+func TestV3InformUnknownUserReportAuthFail(t *testing.T) {
+	eng := aliceEngine(t)
+	s := startSink(t, Config{Engine: eng})
+	other, err := usm.New(usm.Config{EngineID: eng.ID(), EngineBoots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.AddUser(usm.UserConfig{Name: "bob", Level: model.LevelNoAuthNoPriv}); err != nil {
+		t.Fatal(err)
+	}
+	pdu := snmptest.TrapV2PDU(4, coldStart())
+	pdu.Type = snmpwire.PDUInform
+	msg := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            4,
+		MsgMaxSize:       65507,
+		MsgFlags:         usm.Flags(model.LevelNoAuthNoPriv, true),
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		ScopedPDU:        &snmpwire.ScopedPDU{PDU: pdu},
+	}
+	wire, err := other.Wrap(other.User("bob"), msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmptest.Exchange(dst(s), wire, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := snmptest.MustDecode(t, raw)
+	p := got.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUReport {
+		t.Fatalf("want Report got %+v", p)
+	}
+	if s.AuthFail.Load() < 1 {
+		t.Fatal("AuthFail")
+	}
+	if s.Store().Stats().Messages != 0 {
+		t.Fatal("unknown user INFORM must not store by default")
+	}
+}
+
+func TestV3InformUnknownUserAcceptStores(t *testing.T) {
+	eng := aliceEngine(t)
+	s := startSink(t, Config{Engine: eng, AcceptUnauthenticated: true})
+	other, err := usm.New(usm.Config{EngineID: eng.ID(), EngineBoots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other.AddUser(usm.UserConfig{Name: "bob", Level: model.LevelNoAuthNoPriv}); err != nil {
+		t.Fatal(err)
+	}
+	pdu := snmptest.TrapV2PDU(5, coldStart())
+	pdu.Type = snmpwire.PDUInform
+	msg := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            5,
+		MsgMaxSize:       65507,
+		MsgFlags:         usm.Flags(model.LevelNoAuthNoPriv, true),
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		ScopedPDU:        &snmpwire.ScopedPDU{PDU: pdu},
+	}
+	wire, err := other.Wrap(other.User("bob"), msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmptest.Exchange(dst(s), wire, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := snmptest.MustDecode(t, raw)
+	if p := got.RequestPDU(); p == nil || p.Type != snmpwire.PDUReport {
+		t.Fatalf("want Report got %+v", got.RequestPDU())
+	}
+	rec := waitOne(t, s)
+	if rec.User != "" {
+		t.Fatalf("must not store wire userName: %+v", rec)
+	}
+	if rec.PDUType != "inform" || rec.ParseWarning == "" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestCommunityVersionDrop(t *testing.T) {
+	s := startSink(t, Config{
+		Communities: map[string]*Community{
+			"public": {
+				Name:     "public",
+				Wire:     []byte("public"),
+				Versions: map[string]bool{model.VersionV1: true},
+			},
+		},
+	})
+	req := snmptest.MustEncodeTrapV2(t, "public", 1, coldStart())
+	snmptest.MustSend(t, dst(s), req)
+	time.Sleep(50 * time.Millisecond)
+	if s.Store().Stats().Messages != 0 {
+		t.Fatal("v2c trap on v1-only community must drop")
+	}
+	if s.AuthFail.Load() != 0 {
+		t.Fatal("version mismatch is not auth_fail")
+	}
+}
+
+func TestAgentVersionsDropV3(t *testing.T) {
+	eng := aliceEngine(t)
+	s := startSink(t, Config{
+		Engine:   eng,
+		Versions: map[string]bool{model.VersionV1: true, model.VersionV2c: true},
+	})
+	sender := remoteEngine(t)
+	wire := wrapTrap(t, sender, snmptest.TrapV2PDU(9, coldStart()), false)
+	snmptest.MustSend(t, dst(s), wire)
+	time.Sleep(50 * time.Millisecond)
+	if s.Store().Stats().Messages != 0 {
+		t.Fatal("v3 trap must drop when agent versions omit v3")
+	}
+	if s.AuthFail.Load() != 0 {
+		t.Fatal("disabled version is not auth_fail")
 	}
 }
 
