@@ -911,11 +911,14 @@ func TestServeTCPBindFailureExits(t *testing.T) {
 		return body
 	})
 	var stderr bytes.Buffer
-	code := serveWithContext(context.Background(), []string{"--config", cfg}, io.Discard, &stderr)
+	code := serveWithContext(context.Background(), []string{
+		"--config", cfg,
+		"--trap-listen", "off",
+	}, io.Discard, &stderr)
 	if code != 1 {
 		t.Fatalf("exit %d, want 1 stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "listen") {
+	if !strings.Contains(stderr.String(), "snmpagent: tcp listen") {
 		t.Fatalf("stderr %q", stderr.String())
 	}
 }
