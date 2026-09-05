@@ -8,9 +8,10 @@ import (
 
 // ReadTCP reads one SNMP message from r using RFC 3430 BER-length framing:
 // identifier, definite length, then exactly that many content octets.
-// There is no 32-bit length prefix. maxBytes caps identifier+length+content;
-// zero uses DefaultMaxMessageBytes. Framing loss returns ErrBER, ErrTruncated,
-// or ErrTooLarge so the caller can close the connection.
+// maxBytes caps identifier+length+content; zero uses DefaultMaxMessageBytes.
+// A clean end of stream before the identifier is io.EOF. Framing loss
+// returns ErrBER, ErrTruncated, or ErrTooLarge so the caller can close
+// the connection.
 func ReadTCP(r io.Reader, maxBytes int64) ([]byte, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxMessageBytes
@@ -18,7 +19,13 @@ func ReadTCP(r io.Reader, maxBytes int64) ([]byte, error) {
 
 	hdr := make([]byte, 0, 2+maxBERLengthBytes)
 	var b [1]byte
-	if err := readFull(r, b[:]); err != nil {
+	if _, err := io.ReadFull(r, b[:]); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, err
+		}
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil, fmt.Errorf("%w", ErrTruncated)
+		}
 		return nil, err
 	}
 	if b[0]&0x1f == 0x1f {
@@ -70,7 +77,7 @@ func ReadTCP(r io.Reader, maxBytes int64) ([]byte, error) {
 	return out, nil
 }
 
-// WriteTCP writes a complete BER SNMP message with no extra prefix.
+// WriteTCP writes one BER-encoded SNMP message to w.
 func WriteTCP(w io.Writer, msg []byte) error {
 	for len(msg) > 0 {
 		n, err := w.Write(msg)

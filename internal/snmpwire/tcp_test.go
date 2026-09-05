@@ -81,8 +81,8 @@ func TestReadTCPErrors(t *testing.T) {
 		max  int64
 		want error
 	}{
-		{"empty", nil, 0, ErrTruncated},
-		{"truncated-tag", []byte{}, 0, ErrTruncated},
+		{"empty", nil, 0, io.EOF},
+		{"truncated-tag", []byte{}, 0, io.EOF},
 		{"truncated-length", []byte{0x30}, 0, ErrTruncated},
 		{"truncated-long-length", []byte{0x30, 0x81}, 0, ErrTruncated},
 		{"truncated-content", []byte{0x30, 0x05, 0x02, 0x01}, 0, ErrTruncated},
@@ -158,6 +158,9 @@ func TestReadTCPConcatenated(t *testing.T) {
 	}
 	if !bytes.Equal(gotA, a) || !bytes.Equal(gotB, b) {
 		t.Fatalf("a=%x want %x\nb=%x want %x", gotA, a, gotB, b)
+	}
+	if _, err := ReadTCP(r, DefaultMaxMessageBytes); !errors.Is(err, io.EOF) {
+		t.Fatalf("after last frame err=%v, want io.EOF", err)
 	}
 }
 
