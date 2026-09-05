@@ -19,6 +19,9 @@ All notable user-visible and operator-visible changes are recorded here.
   `agent-dtls` / `traps-dtls` when enabled (address `off` when that
   plane is disabled). Gauge `labsnmp_listeners_bound`. Schema-legal,
   not listening until later 1.1 PRs (APP-110).
+- RFC 3430 BER TCP framing in `internal/snmpwire`: `ReadTCP` /
+  `WriteTCP` frame one SNMP SEQUENCE by identifier+length. A framed
+  Get starts with `0x30`.
 
 ### Changed
 

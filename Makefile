@@ -72,6 +72,7 @@ test-fuzz-smoke:
 	$(GO) test ./internal/snmpwire -fuzz=FuzzParseOID -fuzztime=5s -count=1
 	$(GO) test ./internal/snmpwire -fuzz=FuzzEncode -fuzztime=5s -count=1
 	$(GO) test ./internal/snmpwire -fuzz=FuzzBERInteger -fuzztime=5s -count=1
+	$(GO) test ./internal/snmpwire -fuzz=FuzzReadTCP -fuzztime=5s -count=1
 
 generate:
 	$(GO) run ./scripts/generate
