@@ -428,19 +428,96 @@ func TestBootsMismatch(t *testing.T) {
 func TestUnsupportedSecLevel(t *testing.T) {
 	e := mustEngine(t, nil)
 	if err := e.AddUser(UserConfig{
+		Name: "plain", Level: model.LevelNoAuthNoPriv,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.AddUser(UserConfig{
+		Name: "auther", Level: model.LevelAuthNoPriv,
+		AuthProtocol: model.AuthMD5, AuthPassphrase: []byte("maplesyrup"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            8,
+		MsgMaxSize:       65507,
+		MsgFlags:         snmpwire.FlagAuth | snmpwire.FlagPriv | snmpwire.FlagReportable,
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		USM: snmpwire.USMParameters{
+			EngineID:   e.ID(),
+			UserName:   []byte("auther"),
+			AuthParams: make([]byte, 12),
+			PrivParams: make([]byte, 8),
+		},
+		EncryptedPDU: bytes.Repeat([]byte{0x00}, 16),
+	}
+	raw := encodeMsg(t, req)
+	out := e.Open(raw, req)
+	got := decodeReport(t, out.Report)
+	if !reportOID(got).Equal(OIDUnsupportedSecLevels) {
+		t.Fatalf("authNoPriv user + authPriv: oid %s", reportOID(got))
+	}
+
+	req.USM.UserName = []byte("plain")
+	req.MsgFlags = snmpwire.FlagAuth | snmpwire.FlagReportable
+	req.EncryptedPDU = nil
+	req.ScopedPDU = &snmpwire.ScopedPDU{PDU: getPDU(8)}
+	raw = encodeMsg(t, req)
+	out = e.Open(raw, req)
+	got = decodeReport(t, out.Report)
+	if !reportOID(got).Equal(OIDUnsupportedSecLevels) {
+		t.Fatalf("noAuth user + authNoPriv: oid %s", reportOID(got))
+	}
+}
+
+func TestAuthPrivAcceptsLowerLevels(t *testing.T) {
+	e := mustEngine(t, nil)
+	if err := e.AddUser(UserConfig{
 		Name: "alice", Level: model.LevelAuthPriv,
 		AuthProtocol: model.AuthMD5, AuthPassphrase: []byte("maplesyrup"),
 		PrivProtocol: model.PrivDES, PrivPassphrase: []byte("priv-pass"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	req := discoveryMsg("alice", 8)
-	req.USM.EngineID = e.ID()
-	raw := encodeMsg(t, req)
-	out := e.Open(raw, req)
-	got := decodeReport(t, out.Report)
-	if !reportOID(got).Equal(OIDUnsupportedSecLevels) {
-		t.Fatalf("oid %s", reportOID(got))
+	u := e.User("alice")
+	for _, level := range []string{model.LevelNoAuthNoPriv, model.LevelAuthNoPriv, model.LevelAuthPriv} {
+		t.Run(level, func(t *testing.T) {
+			msg := snmpwire.Message{
+				Version:          snmpwire.VersionV3,
+				MsgID:            8,
+				MsgMaxSize:       65507,
+				MsgFlags:         Flags(level, true),
+				MsgSecurityModel: snmpwire.SecurityModelUSM,
+				ScopedPDU:        &snmpwire.ScopedPDU{PDU: getPDU(8)},
+			}
+			wire, err := e.Wrap(u, msg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := snmpwire.Decode(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			out := e.Open(wire, decoded)
+			if out.Incoming == nil {
+				t.Fatalf("authPriv user must accept %s report=%v", level, out.Report != nil)
+			}
+			resp, err := e.Reply(out.Incoming, snmpwire.PDU{Type: snmpwire.PDUResponse, RequestID: 8})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rm, err := snmpwire.Decode(resp)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rm.MsgFlags&snmpwire.FlagReportable != 0 {
+				t.Fatal("reply must not be reportable")
+			}
+			if msgLevel(rm.MsgFlags) != level {
+				t.Fatalf("reply level %s want %s", msgLevel(rm.MsgFlags), level)
+			}
+		})
 	}
 }
 

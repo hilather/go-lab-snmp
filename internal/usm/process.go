@@ -42,7 +42,7 @@ func (e *Engine) Open(raw []byte, msg snmpwire.Message) Outcome {
 	}
 
 	level := msgLevel(msg.MsgFlags)
-	if level == "" || level != u.Level {
+	if !userSupports(u, level) {
 		return e.fail(msg, OIDUnsupportedSecLevels, func(s *Stats) *uint32 { return &s.UnsupportedSecLevels }, u, false, msg.Reportable())
 	}
 
@@ -79,6 +79,28 @@ func msgLevel(flags byte) string {
 		return model.LevelAuthNoPriv
 	default:
 		return model.LevelNoAuthNoPriv
+	}
+}
+
+// YAML level is the user's maximum. RFC 3414 §3.2 step 5 rejects only a
+// request that needs auth or priv the user does not have.
+func userSupports(u *User, level string) bool {
+	if u == nil || level == "" {
+		return false
+	}
+	return levelRank(level) <= levelRank(u.Level)
+}
+
+func levelRank(level string) int {
+	switch level {
+	case model.LevelNoAuthNoPriv:
+		return 0
+	case model.LevelAuthNoPriv:
+		return 1
+	case model.LevelAuthPriv:
+		return 2
+	default:
+		return -1
 	}
 }
 
@@ -136,11 +158,30 @@ func (e *Engine) scoped(msg snmpwire.Message, u *User) (snmpwire.ScopedPDU, bool
 	if err != nil {
 		return snmpwire.ScopedPDU{}, false
 	}
+	if u.PrivProtocol == model.PrivDES {
+		// RFC 3414 §8.1.1.3: ignore DES padding; parse the leading SEQUENCE.
+		plain, err = leadingSequence(plain)
+		if err != nil {
+			return snmpwire.ScopedPDU{}, false
+		}
+	}
 	sp, err := snmpwire.DecodeScopedPDU(plain)
 	if err != nil {
 		return snmpwire.ScopedPDU{}, false
 	}
 	return sp, true
+}
+
+func leadingSequence(b []byte) ([]byte, error) {
+	c := cursor{b: b, end: len(b)}
+	tag, _, _, err := c.tlv()
+	if err != nil {
+		return nil, err
+	}
+	if tag != 0x30 {
+		return nil, fmt.Errorf("usm: scopedPDU is not SEQUENCE")
+	}
+	return b[:c.i], nil
 }
 
 func (e *Engine) fail(req snmpwire.Message, oid snmpwire.OID, counter func(*Stats) *uint32, user *User, auth, always bool) Outcome {
@@ -276,7 +317,7 @@ func (e *Engine) Wrap(user *User, msg snmpwire.Message) ([]byte, error) {
 	return snmpwire.Encode(msg)
 }
 
-// Reply encodes a Response/Report PDU at the incoming user's security level.
+// Reply encodes a Response/Report PDU at the request's security level.
 func (e *Engine) Reply(in *Incoming, pdu snmpwire.PDU) ([]byte, error) {
 	if in == nil || in.User == nil {
 		return nil, fmt.Errorf("usm: nil incoming")
@@ -289,7 +330,7 @@ func (e *Engine) Reply(in *Incoming, pdu snmpwire.PDU) ([]byte, error) {
 		Version:          snmpwire.VersionV3,
 		MsgID:            in.Message.MsgID,
 		MsgMaxSize:       max,
-		MsgFlags:         Flags(in.User.Level, false),
+		MsgFlags:         in.Message.MsgFlags &^ snmpwire.FlagReportable,
 		MsgSecurityModel: snmpwire.SecurityModelUSM,
 		ScopedPDU: &snmpwire.ScopedPDU{
 			ContextEngineID: bytes.Clone(in.ScopedPDU.ContextEngineID),

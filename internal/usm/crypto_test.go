@@ -10,6 +10,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 )
 
 type rfc3414A3 struct {
@@ -99,8 +100,26 @@ func TestDESAESRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, plain) {
+	if len(got) < len(plain) || !bytes.Equal(got[:len(plain)], plain) {
 		t.Fatalf("DES %q", got)
+	}
+	for _, b := range got[len(plain):] {
+		if b != 0 {
+			t.Fatalf("DES pad %x", got[len(plain):])
+		}
+	}
+
+	aligned := bytes.Repeat([]byte{'x'}, 16)
+	ct, err = encrypt(model.PrivDES, key, 1, 10, salt, aligned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = decrypt(model.PrivDES, key, 1, 10, salt, ct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, aligned) {
+		t.Fatalf("DES aligned extra pad %q", got)
 	}
 
 	ct, err = encrypt(model.PrivAES128, key, 1, 10, salt, plain)
@@ -113,6 +132,58 @@ func TestDESAESRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(got, plain) {
 		t.Fatalf("AES %q", got)
+	}
+}
+
+func TestDESZeroPaddedScopedPDU(t *testing.T) {
+	sp := snmpwire.ScopedPDU{
+		ContextEngineID: []byte{0x80, 0x00, 0x00, 0x00, 0x04, 0x6c, 0x61, 0x62},
+		PDU: snmpwire.PDU{
+			Type:      snmpwire.PDUGet,
+			RequestID: 1,
+			VarBinds: []snmpwire.VarBind{{
+				Name:  snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0},
+				Value: snmpwire.Null(),
+			}},
+		},
+	}
+	plain, err := snmpwire.EncodeScopedPDU(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Repeat([]byte{0x11}, 16)
+	salt := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+
+	padTo := 8 - (len(plain) % 8)
+	if padTo == 0 {
+		padTo = 8
+	}
+	padded := append(append([]byte{}, plain...), make([]byte, padTo)...)
+	if padded[len(padded)-1] != 0 {
+		t.Fatal("fixture is not zero-padded")
+	}
+
+	ct, err := encryptDES(key, salt, padded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decryptDES(key, salt, ct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, err := leadingSequence(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := snmpwire.DecodeScopedPDU(seq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.PDU.RequestID != 1 || decoded.PDU.Type != snmpwire.PDUGet {
+		t.Fatalf("pdu %+v", decoded.PDU)
+	}
+	if !bytes.Equal(seq, plain) {
+		t.Fatalf("leading SEQUENCE %x want %x", seq, plain)
 	}
 }
 

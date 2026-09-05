@@ -108,7 +108,7 @@ func encryptDES(privKey, salt, plain []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	padded := pkcs7Pad(plain, des.BlockSize)
+	padded := desPad(plain)
 	out := make([]byte, len(padded))
 	cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, padded)
 	return out, nil
@@ -124,7 +124,7 @@ func decryptDES(privKey, salt, cipherText []byte) ([]byte, error) {
 	}
 	plain := make([]byte, len(cipherText))
 	cipher.NewCBCDecrypter(block, iv).CryptBlocks(plain, cipherText)
-	return pkcs7Unpad(plain, des.BlockSize)
+	return plain, nil
 }
 
 func desBlock(privKey, salt []byte) (cipher.Block, []byte, error) {
@@ -186,26 +186,13 @@ func aesBlock(privKey []byte, boots, etime int32, salt []byte) (cipher.Block, []
 	return block, iv, nil
 }
 
-func pkcs7Pad(b []byte, block int) []byte {
-	n := block - (len(b) % block)
-	if n == 0 {
-		n = block
+// RFC 3414 §8.1.1.2: pad only when len is not a multiple of 8; pad value is irrelevant.
+func desPad(plain []byte) []byte {
+	r := len(plain) % des.BlockSize
+	if r == 0 {
+		return plain
 	}
-	out := make([]byte, len(b)+n)
-	copy(out, b)
-	for i := len(b); i < len(out); i++ {
-		out[i] = byte(n)
-	}
+	out := make([]byte, len(plain)+des.BlockSize-r)
+	copy(out, plain)
 	return out
-}
-
-func pkcs7Unpad(b []byte, block int) ([]byte, error) {
-	if len(b) == 0 || len(b)%block != 0 {
-		return nil, fmt.Errorf("usm: DES padding")
-	}
-	n := int(b[len(b)-1])
-	if n < 1 || n > block || n > len(b) {
-		return nil, fmt.Errorf("usm: DES padding")
-	}
-	return b[:len(b)-n], nil
 }
