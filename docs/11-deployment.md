@@ -32,6 +32,10 @@ is green. Image CMD is unchanged (UDP + management). Do not
 host residual **10161** is UDP 161 ([ADR 0014](adr/0014-host-residual-10161-10162.md)
 unchanged). RFC 3430 TCP and DTLS 1.2 record layer bind when YAML
 enables them; smoke compose stays UDP `:1161`/`:1162`.
+v1.1 tags publish a multi-arch manifest list (`linux/amd64`,
+`linux/arm64`); arm64 is publish-only and CI unit jobs stay amd64.
+The digest of the manifest list is the pin. `latest` still only on
+non-prerelease tags.
 
 ## Appliance smoke vs integrator
 

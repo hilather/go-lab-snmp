@@ -36,6 +36,10 @@ All notable user-visible and operator-visible changes are recorded here.
 - Operator SPA Status and Overview show Agent TCP / Agent DTLS
   dt/dd when `status.listeners` includes `agent-tcp` / `agent-dtls`.
   Features page still twelve ids. No new capability IDs (UI-110).
+- GHCR publish on `v*` tags is a multi-arch manifest list
+  (`linux/amd64`, `linux/arm64`). CI unit jobs stay amd64; arm64 is
+  publish-only. `latest` remains non-prerelease tags only. The digest
+  of the manifest list is the pin.
 
 ### Changed
 
