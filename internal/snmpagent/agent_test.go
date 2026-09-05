@@ -1,6 +1,8 @@
 package snmpagent
 
 import (
+	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -157,6 +159,25 @@ func TestV1GetMissingNoSuchName(t *testing.T) {
 	}
 }
 
+func TestV1GetErrorEchoesRequestBinds(t *testing.T) {
+	s := startAgent(t, loadFull(t, nil))
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV1, "public", 11, sysDescr(), labPrivate())
+	m := snmptest.MustExchange(t, dst(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNoSuchName || p.ErrorIndex != 2 {
+		t.Fatalf("%+v", p)
+	}
+	if len(p.VarBinds) != 2 {
+		t.Fatalf("varbinds %d", len(p.VarBinds))
+	}
+	if !p.VarBinds[0].Name.Equal(sysDescr()) || !p.VarBinds[1].Name.Equal(labPrivate()) {
+		t.Fatalf("names %+v", p.VarBinds)
+	}
+	if p.VarBinds[0].Value.Type != snmpwire.TypeNull || p.VarBinds[1].Value.Type != snmpwire.TypeNull {
+		t.Fatalf("v1 error must echo request NULLs: %+v", p.VarBinds)
+	}
+}
+
 func TestGetBulk(t *testing.T) {
 	s := startAgent(t, loadYAML(t, rwYAML, nil))
 	req, err := snmptest.EncodeGetBulk("public", 9, 1, 2, oid(1, 3), oid(1, 3, 6))
@@ -205,6 +226,72 @@ spec:
 	}
 	if s.Allowlist.Load() < 1 {
 		t.Fatal("Allowlist counter")
+	}
+}
+
+func TestUnmapIPv4MappedIntoLoopbackCIDR(t *testing.T) {
+	mapped, err := netip.ParseAddr("::ffff:127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := netip.MustParsePrefix("127.0.0.0/8")
+	if p.Contains(mapped) {
+		t.Fatal("IPv4-mapped address must not match 127.0.0.0/8 without Unmap")
+	}
+	if !p.Contains(mapped.Unmap()) {
+		t.Fatal("Unmap(::ffff:127.0.0.1) must match 127.0.0.0/8")
+	}
+
+	rt := loadFull(t, nil)
+	s, err := New(Config{Addr: "127.0.0.1:0", Runtime: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := &net.UDPAddr{IP: net.ParseIP("::ffff:127.0.0.1"), Port: 9}
+	ip := peerAddr(addr)
+	if !ip.Is4() || ip.String() != "127.0.0.1" {
+		t.Fatalf("peerAddr Unmap = %v", ip)
+	}
+	if !s.allowed(ip) {
+		t.Fatal("mapped loopback must be admitted to 127.0.0.0/8")
+	}
+}
+
+func TestRateLimitDropsNthPlusOne(t *testing.T) {
+	clk := fakeClock()
+	stYAML := `
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: rate
+spec:
+  admission:
+    allowClientCidrs: ["127.0.0.0/8", "::1/128"]
+    maxDatagramsPerSec: 1
+    maxDatagramsPerIP: 1
+  maps:
+    - name: rw
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          type: octetString
+          value: "descr"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: rw
+`
+	s := startAgent(t, loadYAML(t, stYAML, clk))
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, sysDescr())
+	_ = snmptest.MustExchange(t, dst(s), req, 2*time.Second)
+	if s.Admission.Load() != 0 {
+		t.Fatalf("first datagram Admission=%d", s.Admission.Load())
+	}
+	_, err := snmptest.Exchange(dst(s), req, 200*time.Millisecond)
+	if err == nil {
+		t.Fatal("second datagram in the same second must drop")
+	}
+	if s.Admission.Load() < 1 {
+		t.Fatal("Admission counter")
 	}
 }
 

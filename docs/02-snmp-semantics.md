@@ -34,7 +34,7 @@ GetBulk on v1 is a parse error (not a PDU). Walk is not a PDU; GETNEXT/GETBULK c
 3. No match → drop silently (v1/v2c has no report). Metric `labsnmp_auth_fail_total{version="v1|v2c"}`.
 4. Version not in that community's `versions` list → drop.
 5. Resolve `map` name → compiled tree.
-6. Access `read` forbids Set (error-status `noAccess` / `notWritable` per version).
+6. Access `read` forbids Set (error-status `noAccess` / v1 `noSuchName`).
 
 `communities[].name` is a DNS-label row id (REST/MCP/UI). The wire community octet string is the trimmed contents of the required `communityFile`. Inline `community:` / `secretFile` on a community row is an unknown or validate error.
 

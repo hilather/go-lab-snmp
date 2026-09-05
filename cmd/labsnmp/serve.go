@@ -30,8 +30,8 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "path to bootstrap YAML or JSON")
 	snmpListen := fs.String("snmp-listen", "", "override agent listen address (empty uses YAML)")
-	trapListen := fs.String("trap-listen", "off", "trap listen; AGENT-001 treats as off")
-	mgmtListen := fs.String("management-listen", "off", "management listen; off/none/- leaves it unbound")
+	trapListen := fs.String("trap-listen", "off", "trap listen; off until TRAP-001 (address rejected)")
+	mgmtListen := fs.String("management-listen", "off", "management listen; off until DEP-001 (address rejected)")
 	shutdown := fs.Duration("shutdown-timeout", snmpagent.DefaultShutdownWait, "graceful shutdown deadline")
 	pidFile := fs.String("pid-file", "", "write process id after listeners bind")
 	if err := fs.Parse(args); err != nil {
@@ -60,6 +60,11 @@ func listenOff(s string) bool {
 	}
 }
 
+func listenAddress(s string) bool {
+	s = strings.TrimSpace(s)
+	return s != "" && !listenOff(s)
+}
+
 func serveCmd(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -71,6 +76,15 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	if err != nil {
 		return 2
 	}
+	if listenAddress(flags.TrapListen) {
+		_, _ = fmt.Fprintln(stderr, "labsnmp serve: --trap-listen is not implemented until TRAP-001")
+		return 2
+	}
+	if listenAddress(flags.ManagementListen) {
+		_, _ = fmt.Fprintln(stderr, "labsnmp serve: --management-listen is not implemented until DEP-001")
+		return 2
+	}
+
 	st, warns, err := config.LoadFileWithWarnings(flags.Config)
 	if err != nil {
 		printDomainError(stderr, "labsnmp serve", err)

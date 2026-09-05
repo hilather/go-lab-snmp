@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -77,4 +78,57 @@ func TestServeMissingConfig(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit %d", code)
 	}
+}
+
+func TestServeRejectsTrapAndManagementListen(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	cfg := "testdata/config/valid/full.yaml"
+	t.Run("trap=:162", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := serveWithContext(context.Background(), []string{
+			"--config", cfg,
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", ":162",
+		}, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "--trap-listen") || !strings.Contains(stderr.String(), "TRAP-001") {
+			t.Fatalf("stderr %q", stderr.String())
+		}
+		if strings.Contains(stdout.String(), "snmp listen=") {
+			t.Fatal("must not bind the agent when trap-listen is rejected")
+		}
+	})
+	t.Run("trap high port unbound", func(t *testing.T) {
+		const trapAddr = "127.0.0.1:26162"
+		var stdout, stderr bytes.Buffer
+		code := serveWithContext(context.Background(), []string{
+			"--config", cfg,
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", trapAddr,
+		}, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+		}
+		pc, err := net.ListenPacket("udp", trapAddr)
+		if err != nil {
+			t.Fatalf("trap address must stay unbound: %v", err)
+		}
+		_ = pc.Close()
+	})
+	t.Run("management", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := serveWithContext(context.Background(), []string{
+			"--config", cfg,
+			"--snmp-listen", "127.0.0.1:0",
+			"--management-listen", ":8088",
+		}, &stdout, &stderr)
+		if code != 2 {
+			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+		}
+		if !strings.Contains(stderr.String(), "--management-listen") {
+			t.Fatalf("stderr %q", stderr.String())
+		}
+	})
 }

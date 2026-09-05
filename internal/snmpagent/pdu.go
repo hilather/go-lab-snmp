@@ -47,10 +47,7 @@ func (rt *Runtime) serveGet(ver snmpwire.Version, mapName string, req snmpwire.P
 		if ver == snmpwire.VersionV1 && res.Exception != mibtree.NoException {
 			resp.ErrorStatus = snmpwire.ErrorStatusNoSuchName
 			resp.ErrorIndex = int32(i + 1)
-			for j := i; j < len(req.VarBinds); j++ {
-				vbs[j] = snmpwire.VarBind{Name: append(snmpwire.OID(nil), req.VarBinds[j].Name...), Value: snmpwire.Null()}
-			}
-			resp.VarBinds = vbs
+			resp.VarBinds = copyBinds(req.VarBinds)
 			return resp
 		}
 		if res.Exception != mibtree.NoException {
@@ -71,10 +68,7 @@ func (rt *Runtime) serveGetNext(ver snmpwire.Version, mapName string, req snmpwi
 		if ver == snmpwire.VersionV1 && res.Exception != mibtree.NoException {
 			resp.ErrorStatus = snmpwire.ErrorStatusNoSuchName
 			resp.ErrorIndex = int32(i + 1)
-			for j := i; j < len(req.VarBinds); j++ {
-				vbs[j] = snmpwire.VarBind{Name: append(snmpwire.OID(nil), req.VarBinds[j].Name...), Value: snmpwire.Null()}
-			}
-			resp.VarBinds = vbs
+			resp.VarBinds = copyBinds(req.VarBinds)
 			return resp
 		}
 		if res.Exception != mibtree.NoException {
