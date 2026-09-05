@@ -6,7 +6,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Added
 
-- None.
+- RFC 3430 BER TCP framing in `internal/snmpwire`: `ReadTCP` / `WriteTCP` frame one SNMP SEQUENCE by identifier+length (no 32-bit prefix). A framed Get starts with `0x30`.
 
 ### Changed
 
