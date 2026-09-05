@@ -38,6 +38,7 @@ var RequiredRootDocs = []string{
 	"docs/13-integration-lab-swap.md",
 	"docs/implementation-design.md",
 	"docs/known-limitations.md",
+	"docs/releases/v1.0.0.md",
 	"docs/adr/0001-use-go.md",
 	"docs/adr/0002-first-party-snmpwire.md",
 	"docs/adr/0003-ephemeral-state-and-gitops.md",
@@ -56,6 +57,7 @@ var RequiredRootDocs = []string{
 	"tasks/00-program-board.md",
 	"tasks/README.md",
 	".github/workflows/ci.yml",
+	".github/workflows/release.yml",
 }
 
 // RequiredPhrases must appear in docs/ (identity is community/user, not client IP).
@@ -148,6 +150,9 @@ func Check(root string) error {
 	if err := checkFuzzCorpora(root); err != nil {
 		return err
 	}
+	if err := checkKnownLimitations(root); err != nil {
+		return err
+	}
 	return checkExampleYAML(root)
 }
 
@@ -157,6 +162,8 @@ var RequiredFuzzCorpora = []string{
 	"internal/config/testdata/fuzz/FuzzDecode",
 	"internal/snmpwire/testdata/fuzz/FuzzDecode",
 	"internal/snmpwire/testdata/fuzz/FuzzParseOID",
+	"internal/snmpwire/testdata/fuzz/FuzzEncode",
+	"internal/snmpwire/testdata/fuzz/FuzzBERInteger",
 }
 
 func checkFuzzCorpora(root string) error {
@@ -188,6 +195,37 @@ func checkFuzzCorpora(root string) error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("fuzz corpora missing:\n  %s", strings.Join(missing, "\n  "))
+	}
+	return nil
+}
+
+var requiredLimitations = []string{
+	"Not a production agent",
+	"No SMIv2 compiler",
+	"No TCP/DTLS",
+	"No AgentX",
+	"No trap forward",
+	"userland-proxy",
+	"Single replica",
+	"No OAuth",
+	"TLS-001",
+	"tls_unsupported",
+}
+
+func checkKnownLimitations(root string) error {
+	body, err := os.ReadFile(filepath.Join(root, "docs", "known-limitations.md"))
+	if err != nil {
+		return fmt.Errorf("known-limitations: %w", err)
+	}
+	text := string(body)
+	var missing []string
+	for _, p := range requiredLimitations {
+		if !strings.Contains(text, p) {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("docs/known-limitations.md missing residual phrases: %s", strings.Join(missing, ", "))
 	}
 	return nil
 }

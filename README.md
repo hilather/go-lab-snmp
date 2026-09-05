@@ -20,10 +20,11 @@ This is laboratory software. It is not a production SNMP agent.
 
 ## Status
 
-Scratch image UID `65532:65532`. `make test-container` smokes
-`:1161`/`:1162` with `cap_drop: ALL`. Operator SPA (UI-001) Mira
-checklist is signed off for 1.0.0. Remaining waves start from
-`tasks/00-program-board.md`. Read `START-HERE.md`, then `AGENTS.md`.
+**1.0.0.** Scratch image UID `65532:65532`. `make test-container`
+smokes `:1161`/`:1162` with `cap_drop: ALL`. Operator SPA Mira
+checklist is signed off. Tag-gate is `docs/releases/v1.0.0.md`; do
+not git tag unless required CI is green. TLS-001 (DTLS / TCP SNMP)
+stays deferred. Read `START-HERE.md`, then `AGENTS.md`.
 
 ## What 1.0 will do
 

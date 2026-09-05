@@ -1,7 +1,7 @@
 # Program board — LabSNMP 1.0
 
 Status: Proposed
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 Agents implement one work package per change. Control-plane order is
 CFG → APP → API → SEC → MCP. Data plane proceeds after WIRE.

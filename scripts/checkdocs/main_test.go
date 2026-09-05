@@ -51,7 +51,7 @@ func TestCheckReportsMissingMetadata(t *testing.T) {
 		body := "# x\n"
 		if rel == "docs/01-architecture.md" {
 			body = "# System Architecture\n\nNo metadata.\n"
-		} else if strings.HasPrefix(rel, "docs/") && strings.HasSuffix(rel, ".md") && !strings.Contains(rel, "adr/") && rel != "docs/implementation-design.md" && rel != "docs/README.md" && rel != "docs/known-limitations.md" {
+		} else if strings.HasPrefix(rel, "docs/") && strings.HasSuffix(rel, ".md") && !strings.Contains(rel, "adr/") && rel != "docs/implementation-design.md" && rel != "docs/README.md" && rel != "docs/known-limitations.md" && rel != "docs/releases/v1.0.0.md" {
 			body = "# x\n\nStatus: Proposed\nOwners: Test\nLast reviewed: 2026-08-30\n"
 		}
 		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -73,7 +73,7 @@ func TestCheckFailsWhenFuzzCorporaMissing(t *testing.T) {
 			t.Fatal(err)
 		}
 		body := "# x\n"
-		if strings.HasPrefix(rel, "docs/") && strings.HasSuffix(rel, ".md") && !strings.Contains(rel, "adr/") && rel != "docs/implementation-design.md" && rel != "docs/README.md" && rel != "docs/known-limitations.md" {
+		if strings.HasPrefix(rel, "docs/") && strings.HasSuffix(rel, ".md") && !strings.Contains(rel, "adr/") && rel != "docs/implementation-design.md" && rel != "docs/README.md" && rel != "docs/known-limitations.md" && rel != "docs/releases/v1.0.0.md" {
 			body = "# x\n\nStatus: Proposed\nOwners: Test\nLast reviewed: 2026-08-30\n\nNAT collision userland-proxy\n"
 		} else if strings.HasPrefix(rel, "docs/") {
 			body = "# x\n\nNAT collision userland-proxy\n"
@@ -103,6 +103,30 @@ func TestFuzzCorporaReportsMissing(t *testing.T) {
 	dir := t.TempDir()
 	if err := checkFuzzCorpora(dir); err == nil {
 		t.Fatal("expected missing corpora")
+	}
+}
+
+func TestKnownLimitationsMatchResidual(t *testing.T) {
+	root, err := repoRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkKnownLimitations(root); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestKnownLimitationsReportsMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "docs", "known-limitations.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkKnownLimitations(dir); err == nil {
+		t.Fatal("expected missing residual phrases")
 	}
 }
 

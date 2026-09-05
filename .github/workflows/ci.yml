@@ -1,7 +1,8 @@
 # LabSNMP continuous integration.
 #
-# Required jobs: format, lint, unit, race, documentation, changelog,
-# container-test. Do not add a CI job that calls a fail-closed Make placeholder.
+# Required jobs: format, lint, unit, race, fuzz-smoke, documentation,
+# config-compat, changelog, generated-file, parity, security-scan,
+# container-test, web. Do not add a CI job that calls a fail-closed Make placeholder.
 
 name: CI
 
@@ -84,6 +85,24 @@ jobs:
           path: race.log
           retention-days: 14
 
+  fuzz-smoke:
+    name: fuzz-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Fuzz smoke
+        run: make test-fuzz-smoke | tee fuzz-smoke.log
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: fuzz-smoke-logs
+          path: fuzz-smoke.log
+          retention-days: 14
+
   documentation:
     name: documentation
     runs-on: ubuntu-latest
@@ -95,6 +114,18 @@ jobs:
           go-version: "1.26"
       - name: Documentation checks
         run: make test-docs
+
+  config-compat:
+    name: config-compat
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Config compatibility fixtures
+        run: make test-config-compat
 
   changelog:
     name: changelog
@@ -109,6 +140,42 @@ jobs:
           go-version: "1.26"
       - name: Changelog entry
         run: make test-changelog
+
+  generated-file:
+    name: generated-file
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Verify generated contracts
+        run: make verify-generated
+
+  parity:
+    name: parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: REST/MCP parity
+        run: make test-parity
+
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+      - name: Vulnerability scan
+        run: make security-scan
 
   container-test:
     name: container-test

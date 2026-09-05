@@ -329,7 +329,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// traps.wait is capped by spec.traps.maxWait (default 60s), not the
 	// generic management request timeout.
-	if s.timeout > 0 && !(pathOK && methodOK && rt.cap.ID == capabilities.TrapsWait) {
+	if s.timeout > 0 && (!pathOK || !methodOK || rt.cap.ID != capabilities.TrapsWait) {
 		ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
 		defer cancel()
 		r = r.WithContext(ctx)

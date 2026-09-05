@@ -18,7 +18,6 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
-	"github.com/hilather/go-lab-snmp/internal/web"
 )
 
 func TestServeAnswersWithManagementOff(t *testing.T) {
@@ -233,11 +232,11 @@ func TestServeBindsManagementListen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("GET / %d (UIEnabled=%v must 404 problem+json)", resp.StatusCode, web.UIEnabled)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / %d (ui.enabled true must serve SPA 200)", resp.StatusCode)
 	}
-	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/problem+json") {
-		t.Fatalf("GET / content-type %q", ct)
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("GET / content-type %q (want text/html SPA)", ct)
 	}
 	cancel()
 	select {

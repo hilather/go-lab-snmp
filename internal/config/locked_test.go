@@ -143,3 +143,16 @@ func TestCounter64Preserved(t *testing.T) {
 		t.Fatalf("revision drifted after counter64 coerce: %s != %s", rev1, rev2)
 	}
 }
+
+func TestTLS001StillDeferred(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	for _, name := range []string{"dtls-enabled.yaml", "tcp-enabled.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadFile(testdata(t, "invalid", name))
+			de := requireValidation(t, err, violationTLSUnsupported)
+			if de.Code != domainerr.CodeTLSUnsupported {
+				t.Fatalf("code=%s want tls_unsupported", de.Code)
+			}
+		})
+	}
+}

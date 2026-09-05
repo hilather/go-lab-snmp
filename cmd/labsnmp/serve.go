@@ -291,19 +291,10 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			Ready: func() bool {
 				return observability.Evaluate(svc.HealthFacts()).Ready
 			},
-			Metrics: metrics,
-			Logger:  logger,
-			UI:      web.NewHandler(nil),
-			UIEnabled: func() bool {
-				if !web.UIEnabled {
-					return false
-				}
-				live := svc.Active()
-				if live == nil || live.Canonical == nil {
-					return false
-				}
-				return live.Canonical.Spec.UI.Enabled
-			},
+			Metrics:   metrics,
+			Logger:    logger,
+			UI:        web.NewHandler(nil),
+			UIEnabled: serveUIEnabled(svc),
 			Mounts: map[string]http.Handler{
 				mcpPath: mcpSrv.Handler(),
 			},

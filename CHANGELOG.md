@@ -1,9 +1,32 @@
 # Changelog
 
+All notable user-visible and operator-visible changes are recorded here.
+
 ## [Unreleased]
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed
+
+- None.
+
+## [1.0.0] - 2026-09-05
+
+Notes: [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md). TLS-001 stays deferred.
+
+### Added
+
+- GA hardening: expanded snmpwire BER + OID + INTEGER + community-encode fuzz, GETNEXT+SET+trap soak (CI-safe 2s; `LABSNMP_SOAK_DURATION` for a longer pre-tag run), `docs/releases/v1.0.0.md`, known-limitations residual lock, `scripts/release-gate`, tag-gate + GHCR publish on `v*`, and `make security-scan` via govulncheck v1.1.4 (GA-001).
 - Integration-lab BOM (`examples/labsnmp.yaml`, labinfo id `labsnmp`, Jungle `labsnmp.json`): copy-paste overlay for mcp-integration-lab. Residual host ports 10161/10162/18161, env `LABSNMP_REST_PORT` (not `LABSNMP_MGMT_PORT`), `NET_BIND_SERVICE`, healthcheck, maps `public-if`/`private-if`, user `alice`. Integrator pin is out of band; this repo does not implement `vendor.go` (SWAP-001).
 - Operator SPA (Vite + React 19) over REST `/v1`: login, overview, maps
   (tree + `oids:set` overlay), communities/users (secrets never shown),
@@ -30,6 +53,7 @@
 
 ### Changed
 
+- `GET /` is 200 SPA HTML when `spec.ui.enabled` is true (and the embed is live); 404 `application/problem+json` when false.
 - Operator SPA Mira checklist signed off for 1.0.0 from UI-001 tests
   (pages, no localStorage tokens, CSRF, `ui.enabled: false` 404, no
   send-trap). Empty-state copy and skip-link focus on list pages. No

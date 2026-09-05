@@ -50,11 +50,6 @@ func TestUnknownCommunitySilentDrop(t *testing.T) {
 	if err := s.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		_ = s.Shutdown(ctx)
-	})
 	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "nope", 1, sysDescr())
 	_, err = snmptest.Exchange(dst(s), req, 200*time.Millisecond)
 	if err == nil {
@@ -66,6 +61,9 @@ func TestUnknownCommunitySilentDrop(t *testing.T) {
 	if v, ok := s.metrics.Get(observability.MetricAuthFailTotal, map[string]string{"version": "v2c"}); !ok || v < 1 {
 		t.Fatal("labsnmp_auth_fail_total")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	_ = s.Shutdown(ctx)
+	cancel()
 	logs := logBuf.String()
 	if !strings.Contains(logs, `"event":"snmp.pdu"`) || !strings.Contains(logs, `"event":"auth.failure"`) {
 		t.Fatalf("catalog events missing: %s", logs)

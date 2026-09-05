@@ -23,7 +23,7 @@ help:
 		'  verify-generated    fail if generate would change those files' \
 		'  test                go test ./...' \
 		'  test-race           go test -race ./...' \
-		'  test-fuzz-smoke     buildinfo + config + snmpwire fuzz corpora' \
+		'  test-fuzz-smoke     buildinfo + config + snmpwire BER/OID/encode fuzz corpora' \
 		'  test-docs           required documents, metadata, links, and required phrases' \
 		'  security-scan       govulncheck' \
 		'  test-parity         REST/MCP capability parity goldens' \
@@ -70,6 +70,8 @@ test-fuzz-smoke:
 	$(GO) test ./internal/config -fuzz=FuzzDecode -fuzztime=5s -count=1
 	$(GO) test ./internal/snmpwire -fuzz=FuzzDecode -fuzztime=10s -count=1
 	$(GO) test ./internal/snmpwire -fuzz=FuzzParseOID -fuzztime=5s -count=1
+	$(GO) test ./internal/snmpwire -fuzz=FuzzEncode -fuzztime=5s -count=1
+	$(GO) test ./internal/snmpwire -fuzz=FuzzBERInteger -fuzztime=5s -count=1
 
 generate:
 	$(GO) run ./scripts/generate
@@ -84,8 +86,7 @@ test-parity:
 	$(GO) test ./internal/capabilities ./internal/control/rest ./internal/control/mcp -count=1
 
 security-scan:
-	@echo 'make $@: not implemented' >&2
-	@false
+	$(GO) run $(GOVULNCHECK_MOD) ./...
 
 web-install:
 	npm --prefix web ci

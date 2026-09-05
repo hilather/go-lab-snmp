@@ -6,6 +6,7 @@ the community or v3 user.
 
 If you want to **implement** it, read `AGENTS.md` then take a wave
 from `tasks/00-program-board.md`. Do not invent capability IDs.
+1.0.0 notes live in `docs/releases/v1.0.0.md`. TLS-001 stays deferred.
 
 ## Build
 

@@ -151,6 +151,7 @@ func encryptAES(privKey []byte, boots, etime int32, salt, plain []byte) ([]byte,
 		return nil, err
 	}
 	out := make([]byte, len(plain))
+	//nolint:staticcheck // RFC 3826 usmAesCfb128Protocol is CFB, not AEAD.
 	cipher.NewCFBEncrypter(block, iv).XORKeyStream(out, plain)
 	return out, nil
 }
@@ -164,6 +165,7 @@ func decryptAES(privKey []byte, boots, etime int32, salt, cipherText []byte) ([]
 		return nil, fmt.Errorf("usm: AES ciphertext empty")
 	}
 	plain := make([]byte, len(cipherText))
+	//nolint:staticcheck // RFC 3826 usmAesCfb128Protocol is CFB, not AEAD.
 	cipher.NewCFBDecrypter(block, iv).XORKeyStream(plain, cipherText)
 	return plain, nil
 }

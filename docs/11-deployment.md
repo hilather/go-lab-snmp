@@ -24,8 +24,11 @@ USER 65532:65532
 CMD binds `:8088` so HEALTHCHECK and authenticated `/v1` work.
 Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
 `1.26.6` pin). The operator SPA is `go:embed` of committed
-`internal/web/dist`. Until UI-001, `UIEnabled=false` so `GET /` is
-404 `application/problem+json` even when `spec.ui.enabled` is true.
+`internal/web/dist`. `GET /` is 200 SPA HTML when `spec.ui.enabled`
+is true; 404 `application/problem+json` when false. Tag-gate + GHCR
+publish is `.github/workflows/release.yml` on `v*` after required CI
+is green. TLS-001 stays deferred (`dtls.enabled` / `tcp.enabled`
+true still reject).
 
 ## Appliance smoke vs integrator
 

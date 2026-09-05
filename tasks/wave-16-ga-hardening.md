@@ -1,6 +1,6 @@
 # GA-001 — Fuzz, soak, release notes
 
-Status: not-started
+Status: done
 Depends: waves 1–15
 Owns: docs/releases, known-limitations, tag-gate
 
