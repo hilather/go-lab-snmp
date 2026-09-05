@@ -216,12 +216,20 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	svc.SetHealth(func() observability.Facts {
 		want := dp.last()
 		return observability.Facts{
-			AgentBound: srv.Bound(),
-			AgentOff:   want.AgentUDP == "",
-			TrapBound:  sink != nil && sink.Bound(),
-			TrapOff:    want.TrapUDP == "",
-			MgmtBound:  restSrv != nil && restSrv.Bound(),
-			MgmtOff:    mgmtOff,
+			AgentBound:    srv.Bound(),
+			AgentOff:      want.AgentUDP == "",
+			TrapBound:     sink != nil && sink.Bound(),
+			TrapOff:       want.TrapUDP == "",
+			TCPBound:      srv.BoundTCP(),
+			TCPOff:        want.AgentTCP == "",
+			TrapTCPBound:  sink != nil && sink.BoundTCP(),
+			TrapTCPOff:    want.TrapTCP == "",
+			DTLSBound:     srv.BoundDTLS(),
+			DTLSOff:       want.AgentDTLS == "",
+			TrapDTLSBound: sink != nil && sink.BoundDTLS(),
+			TrapDTLSOff:   want.TrapDTLS == "",
+			MgmtBound:     restSrv != nil && restSrv.Bound(),
+			MgmtOff:       mgmtOff,
 		}
 	})
 	syncObs := func() {

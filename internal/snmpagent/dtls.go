@@ -28,7 +28,7 @@ var dtlsAllowlist = []dtls.CipherSuiteID{
 }
 
 // ListenDTLS binds a DTLS 1.2 listener without swapping it into service.
-// Cert paths come from the caller (candidate snapshot); CIDR uses live prefixes.
+// Cert paths are caller-supplied; CIDR uses live prefixes.
 func (s *Server) ListenDTLS(addr, certFile, keyFile, clientCAFile string) (net.Listener, error) {
 	if s == nil {
 		return nil, errors.New("snmpagent: nil server")

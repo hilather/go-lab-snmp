@@ -109,10 +109,12 @@ SUT DTLS/10162 --> snmpsink ListenWithOptions
 ## Listen
 
 - `net.ListenPacket("udp", addr)` for agent and sink UDP
-- `net.Listen("tcp", addr)` + RFC 3430 BER `ReadTCP`/`WriteTCP` for agent TCP
-- pion/dtls v3 `ListenWithOptions` for agent DTLS 1.2 (AEAD suites only;
-  live CIDR `WithOnConnectionAttempt`; `HandshakeContext` error closes
-  without handle). Inner PDU is community or USM; TLSTM/TSM is not
+- `net.Listen("tcp", addr)` + RFC 3430 BER `ReadTCP`/`WriteTCP` for
+  agent TCP (161/tcp) and trap TCP (162/tcp)
+- pion/dtls v3 `ListenWithOptions` for agent DTLS (10161/udp) and
+  trap DTLS (10162/udp) 1.2 (AEAD suites only; live CIDR
+  `WithOnConnectionAttempt`; `HandshakeContext` error closes without
+  handle). Inner PDU is community or USM; TLSTM/TSM is not
   implemented. Never `dtls.Dial` in production.
 - Client IP `netip.Addr.Unmap()` before CIDR admission
 - UID 65532 vs :161/:162 needs `CAP_NET_BIND_SERVICE` on integrator compose

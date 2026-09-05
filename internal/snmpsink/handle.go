@@ -280,8 +280,7 @@ func (s *Server) ackInform(sink replySink, msg snmpwire.Message, req snmpwire.PD
 	ack(sink, out)
 }
 
-// ack is the INFORM and v3 Report reply path. UDP WriteTo, TCP WriteTCP,
-// DTLS Write on the accepted connection; never Dial.
+// ack is shared by INFORM and v3 Report.
 func ack(sink replySink, payload []byte) {
 	if sink == nil || len(payload) == 0 {
 		return
