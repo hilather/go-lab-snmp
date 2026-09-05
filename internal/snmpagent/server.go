@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
@@ -27,6 +28,7 @@ type Config struct {
 	Queries     *store.QueryRing
 	Clock       Clock
 	MaxInflight int
+	Metrics     *observability.Registry
 }
 
 // Server is a unicast SNMPv1/v2c/v3 UDP listener.
@@ -36,6 +38,7 @@ type Server struct {
 	overlay *store.Overlay
 	queries *store.QueryRing
 	clock   Clock
+	metrics *observability.Registry
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -95,6 +98,7 @@ func New(cfg Config) (*Server, error) {
 		overlay:  cfg.Overlay,
 		queries:  cfg.Queries,
 		clock:    clk,
+		metrics:  cfg.Metrics,
 		ctx:      ctx,
 		cancel:   cancel,
 		bindAddr: cfg.Addr,

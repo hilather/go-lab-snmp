@@ -12,6 +12,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/testutil"
@@ -35,6 +36,8 @@ type Options struct {
 	TrapListenOverride string
 	// MgmtListenOverride is --management-listen including off/none/-.
 	MgmtListenOverride string
+	Metrics            *observability.Registry
+	Logger             *observability.Logger
 }
 
 // App is the process-local Service implementation.
@@ -57,6 +60,12 @@ type App struct {
 	snmpRebind func(addr string) error
 	trapRebind func(addr string) error
 	httpRebind func(addr string) error
+
+	metrics *observability.Registry
+	logger  *observability.Logger
+
+	healthMu sync.Mutex
+	health   func() observability.Facts
 }
 
 var _ Service = (*App)(nil)
@@ -104,6 +113,8 @@ func New(opts Options) *App {
 		snmpOverride:  opts.SNMPListenOverride,
 		trapOverride:  opts.TrapListenOverride,
 		mgmtOverride:  opts.MgmtListenOverride,
+		metrics:       opts.Metrics,
+		logger:        opts.Logger,
 	}
 }
 
@@ -211,6 +222,46 @@ func (s *App) SetHTTPRebind(fn func(addr string) error) {
 		return
 	}
 	s.httpRebind = fn
+}
+
+// SetLogger replaces the structured logger (serve reapplies YAML logLevel).
+func (s *App) SetLogger(l *observability.Logger) {
+	if s == nil {
+		return
+	}
+	s.logger = l
+}
+
+// SetHealth installs live listener facts for Status.Ready / Evaluate.
+func (s *App) SetHealth(fn func() observability.Facts) {
+	if s == nil {
+		return
+	}
+	s.healthMu.Lock()
+	s.health = fn
+	s.healthMu.Unlock()
+}
+
+// HealthFacts is the input to observability.Evaluate.
+func (s *App) HealthFacts() observability.Facts {
+	if s == nil {
+		return observability.Facts{}
+	}
+	s.healthMu.Lock()
+	fn := s.health
+	s.healthMu.Unlock()
+	snapUp := s.Active() != nil
+	if fn != nil {
+		f := fn()
+		f.SnapshotUp = snapUp
+		return f
+	}
+	return observability.Facts{
+		SnapshotUp: snapUp,
+		AgentBound: snapUp,
+		TrapBound:  snapUp,
+		MgmtOff:    true,
+	}
 }
 
 // OnReset registers a hook fired after a successful Reset (outside the mutex).

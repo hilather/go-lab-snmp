@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -81,16 +83,44 @@ func TestUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestHealthcheck(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/health/ready" {
+			t.Errorf("path %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer ok.Close()
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labsnmp", "healthcheck", "--url", ok.URL + "/v1/health/ready"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit %d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ok") {
+		t.Fatalf("stdout %q", stdout.String())
+	}
+
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer down.Close()
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"labsnmp", "healthcheck", "--url", down.URL + "/v1/health/ready"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("not-ready exit %d want 1 stderr=%q", code, stderr.String())
+	}
+}
+
 func TestUnimplementedCommands(t *testing.T) {
-	for _, cmd := range []string{"healthcheck", "mcp-stdio"} {
-		var stdout, stderr bytes.Buffer
-		code := run([]string{"labsnmp", cmd}, &stdout, &stderr)
-		if code != 1 {
-			t.Fatalf("%s exit %d, want 1; stderr=%q", cmd, code, stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "not implemented") {
-			t.Fatalf("%s stderr %q", cmd, stderr.String())
-		}
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labsnmp", "mcp-stdio"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("mcp-stdio exit %d, want 1; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "not implemented") {
+		t.Fatalf("mcp-stdio stderr %q", stderr.String())
 	}
 }
 

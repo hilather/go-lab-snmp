@@ -1,0 +1,213 @@
+{
+  "id": "labsnmp.dev/metrics/v1alpha1",
+  "version": "v1alpha1",
+  "allowedLabels": [
+    "capability",
+    "code",
+    "commit",
+    "component",
+    "decision",
+    "event",
+    "pdu",
+    "reason",
+    "result",
+    "route",
+    "version"
+  ],
+  "forbiddenLabels": [
+    "actor",
+    "actor_id",
+    "address",
+    "authorization",
+    "body",
+    "client",
+    "client_ip",
+    "community",
+    "community_string",
+    "cookie",
+    "data",
+    "detail",
+    "err",
+    "error",
+    "error_text",
+    "from",
+    "host",
+    "idempotency",
+    "idempotency_key",
+    "message",
+    "passphrase",
+    "password",
+    "peer",
+    "raw",
+    "remote_addr",
+    "secret",
+    "set_cookie",
+    "source_ip",
+    "src",
+    "src_ip",
+    "subject",
+    "to",
+    "token"
+  ],
+  "metrics": [
+    {
+      "name": "labsnmp_apply_total",
+      "kind": "counter",
+      "help": "Plan/apply/reset commits.",
+      "labels": [
+        "result"
+      ]
+    },
+    {
+      "name": "labsnmp_auth_fail_total",
+      "kind": "counter",
+      "help": "Community and USM authentication failures.",
+      "labels": [
+        "version"
+      ]
+    },
+    {
+      "name": "labsnmp_build_info",
+      "kind": "gauge",
+      "help": "Build metadata.",
+      "labels": [
+        "commit",
+        "version"
+      ]
+    },
+    {
+      "name": "labsnmp_http_requests_total",
+      "kind": "counter",
+      "help": "Management HTTP requests.",
+      "labels": [
+        "code",
+        "route"
+      ]
+    },
+    {
+      "name": "labsnmp_pdus_total",
+      "kind": "counter",
+      "help": "SNMP PDUs by version, PDU type, and decision.",
+      "labels": [
+        "decision",
+        "pdu",
+        "version"
+      ]
+    },
+    {
+      "name": "labsnmp_store_bytes",
+      "kind": "gauge",
+      "help": "Trap inbox retained bytes.",
+      "labels": null
+    },
+    {
+      "name": "labsnmp_store_messages",
+      "kind": "gauge",
+      "help": "Trap inbox message count.",
+      "labels": null
+    },
+    {
+      "name": "labsnmp_telemetry_dropped_total",
+      "kind": "counter",
+      "help": "Telemetry samples dropped under policy or cardinality.",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "labsnmp_traps_total",
+      "kind": "counter",
+      "help": "Trap and inform datagrams by version and decision.",
+      "labels": [
+        "decision",
+        "version"
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "auth.failure",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "http.request",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "snmp.pdu",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "snmp.trap",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "state.apply",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    },
+    {
+      "name": "state.reset",
+      "fields": [
+        "timestamp",
+        "level",
+        "event",
+        "component",
+        "request_id",
+        "capability",
+        "result",
+        "error_code",
+        "duration_ms"
+      ]
+    }
+  ]
+}

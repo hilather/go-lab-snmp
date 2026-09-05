@@ -15,6 +15,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 )
 
 const (
@@ -51,6 +52,8 @@ type Config struct {
 	RatePerSec        float64
 	RateBurst         float64
 	PublicMetrics     bool
+	Metrics           *observability.Registry
+	Logger            *observability.Logger
 	UI                http.Handler
 	UIEnabled         func() bool
 	Mounts            map[string]http.Handler
@@ -67,6 +70,8 @@ type Server struct {
 	inflight chan struct{}
 	rate     *limiter
 	mounts   *http.ServeMux
+	metrics  *observability.Registry
+	logger   *observability.Logger
 
 	mu     sync.Mutex
 	http   *http.Server
@@ -101,6 +106,8 @@ func New(cfg Config) (*Server, error) {
 		inflight: make(chan struct{}, n),
 		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
 		addr:     cfg.Addr,
+		metrics:  cfg.Metrics,
+		logger:   cfg.Logger,
 	}
 	if len(cfg.Mounts) > 0 {
 		mux := http.NewServeMux()
@@ -252,10 +259,17 @@ func (s *Server) Addr() string {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	w = sw
 	reqID := requestID(r)
 	w.Header().Set(headerRequestID, reqID)
 	r.Header.Set(headerRequestID, reqID)
 	instance := requestURNPrefix + reqID
+	route := "other"
+	defer func() {
+		s.observeHTTP(route, sw.status(), start, reqID)
+	}()
 
 	if err := checkOrigin(r.Header.Get("Origin"), s.cfg.AllowedOrigins); err != nil {
 		s.writeProblem(w, r, instance, err)
@@ -285,6 +299,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
+	if pathOK {
+		route = rt.binding.Path
+	}
 	// traps.wait is capped by spec.traps.maxWait (default 60s), not the
 	// generic management request timeout.
 	if s.timeout > 0 && !(pathOK && methodOK && rt.cap.ID == capabilities.TrapsWait) {
@@ -298,13 +315,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			s.writeProblem(w, r, instance, domainerr.MethodNotAllowed("method not allowed"))
 			return
 		}
-		if !isHealthCap(rt.cap) {
+		if !s.skipAuth(rt.cap) {
 			if err := s.rate.allow(r.RemoteAddr); err != nil {
 				s.writeProblem(w, r, instance, err)
 				return
 			}
 		}
-		actor, err := s.authenticate(r, isHealthCap(rt.cap))
+		actor, err := s.authenticate(r, s.skipAuth(rt.cap))
 		if err != nil {
 			s.writeProblem(w, r, instance, err)
 			return
@@ -325,6 +342,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func isHealthCap(cap capabilities.Capability) bool {
 	return cap.ID == capabilities.HealthLive || cap.ID == capabilities.HealthReady
+}
+
+func (s *Server) skipAuth(cap capabilities.Capability) bool {
+	if isHealthCap(cap) {
+		return true
+	}
+	return cap.ID == capabilities.MetricsGet && s.cfg.PublicMetrics
 }
 
 func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance string) bool {
@@ -361,6 +385,25 @@ func (s *Server) isReady(ctx context.Context) bool {
 	return st.Ready
 }
 
+func (s *Server) observeHTTP(route string, status int, start time.Time, reqID string) {
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricHTTPRequestsTotal, map[string]string{
+			"code":  observability.HTTPCode(status),
+			"route": observability.HTTPRoute(route),
+		}, 1)
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:      observability.EventHTTPRequest,
+			Component:  "rest",
+			RequestID:  reqID,
+			Capability: route,
+			Result:     observability.HTTPCode(status),
+			DurationMS: float64(time.Since(start).Milliseconds()),
+		})
+	}
+}
+
 func requestID(r *http.Request) string {
 	if id := r.Header.Get(headerRequestID); id != "" {
 		return id
@@ -370,4 +413,21 @@ func requestID(r *http.Request) string {
 		return "req-fallback"
 	}
 	return hex.EncodeToString(b[:])
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.code = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusWriter) status() int {
+	if w.code == 0 {
+		return http.StatusOK
+	}
+	return w.code
 }

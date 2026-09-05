@@ -254,7 +254,7 @@ type ObservabilitySpec struct {
 	Metrics  MetricsSpec `json:"metrics"`
 }
 
-// MetricsSpec is hand-rolled OpenMetrics (later PR).
+// MetricsSpec is hand-rolled OpenMetrics scrape policy.
 type MetricsSpec struct {
 	PublicPath bool `json:"publicPath"`
 }

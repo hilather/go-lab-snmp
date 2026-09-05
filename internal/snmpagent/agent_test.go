@@ -8,6 +8,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
@@ -37,6 +38,9 @@ func TestUnknownCommunitySilentDrop(t *testing.T) {
 	}
 	if s.AuthFail.Load() < 1 {
 		t.Fatal("AuthFail counter")
+	}
+	if v, ok := s.metrics.Get(observability.MetricAuthFailTotal, map[string]string{"version": "v2c"}); !ok || v < 1 {
+		t.Fatal("labsnmp_auth_fail_total")
 	}
 }
 

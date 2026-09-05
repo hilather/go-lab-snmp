@@ -8,6 +8,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
@@ -119,6 +120,9 @@ type Warning struct {
 	Code    string
 	Message string
 }
+
+// HealthFacts is the input to Status.Ready / observability.Evaluate.
+type HealthFacts = observability.Facts
 
 // DiffEntry is one canonical-path change. Paths are sorted in plans.
 type DiffEntry struct {

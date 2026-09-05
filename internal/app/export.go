@@ -5,6 +5,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 )
 
 // Export returns canonical YAML or JSON of the active snapshot.
@@ -99,8 +100,19 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 	if mgmtAddr == "" {
 		mgmtAddr = "off"
 	}
+	probe := observability.Evaluate(s.HealthFacts())
+	warns := make([]Warning, 0, len(probe.Warnings)+4)
+	for _, w := range probe.Warnings {
+		warns = append(warns, Warning{Code: w.Code, Message: w.Message})
+	}
+	for _, w := range warningsOf(snap) {
+		if len(warns) >= observability.MaxWarnings {
+			break
+		}
+		warns = append(warns, w)
+	}
 	return &Status{
-		Ready: snap != nil,
+		Ready: probe.Ready,
 		Revisions: RevisionView{
 			BootstrapRevision: snap.BootstrapRevision,
 			RuntimeRevision:   snap.Revision,
@@ -115,6 +127,6 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 			{Name: "management", Address: mgmtAddr},
 		},
 		HostTime: s.clock.Now().UTC(),
-		Warnings: warningsOf(snap),
+		Warnings: warns,
 	}, nil
 }

@@ -14,9 +14,11 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/control/rest"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
 	"github.com/hilather/go-lab-snmp/internal/snmpsink"
@@ -101,11 +103,21 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	if err != nil {
 		return 2
 	}
+	metrics := observability.NewRegistry()
+	info := buildinfo.Current()
+	metrics.Set(observability.MetricBuildInfo, map[string]string{
+		"version": info.Version,
+		"commit":  info.Commit,
+	}, 1)
+	logger := observability.NewLogger(stderr, observability.LevelInfo)
+	logger.SetRegistry(metrics)
 	svc, err := app.Boot(ctx, app.Options{
 		BootstrapPath:      flags.Config,
 		SNMPListenOverride: flags.SNMPListen,
 		TrapListenOverride: flags.TrapListen,
 		MgmtListenOverride: flags.ManagementListen,
+		Metrics:            metrics,
+		Logger:             logger,
 	})
 	if err != nil {
 		printDomainError(stderr, "labsnmp serve", err)
@@ -120,6 +132,11 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		_, _ = fmt.Fprintf(stderr, "warning %s: %s\n", w.Path, w.Message)
 	}
 	st := snap.Canonical
+	if st != nil {
+		logger = observability.NewLogger(stderr, observability.ParseLevel(st.Spec.Observability.LogLevel))
+		logger.SetRegistry(metrics)
+		svc.SetLogger(logger)
+	}
 
 	addr := strings.TrimSpace(flags.SNMPListen)
 	switch {
@@ -143,6 +160,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		Overlay: svc.Overlay(),
 		Queries: svc.Queries(),
 		Clock:   snap.Clock,
+		Metrics: metrics,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
@@ -157,7 +175,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var sink *snmpsink.Server
 	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
 	if trapOn {
-		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps())
+		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps(), metrics)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -179,6 +197,15 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 
 	var restSrv *rest.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{
+			AgentBound: srv.Bound(),
+			TrapBound:  sink != nil && sink.Bound(),
+			TrapOff:    !trapOn,
+			MgmtBound:  restSrv != nil && restSrv.Bound(),
+			MgmtOff:    mgmtOff,
+		}
+	})
 	if !mgmtOff {
 		origins := []string{}
 		bodyLimit := config.DefaultBodyLimit
@@ -188,6 +215,10 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 				bodyLimit = st.Spec.Management.BodyLimit
 			}
 		}
+		publicMetrics := false
+		if st != nil {
+			publicMetrics = st.Spec.Observability.Metrics.PublicPath
+		}
 		restSrv, err = rest.New(rest.Config{
 			Addr:           flags.ManagementListen,
 			Service:        svc,
@@ -196,17 +227,11 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			RatePerSec:     0,
 			Live:           func() bool { return true },
 			Ready: func() bool {
-				if svc.Active() == nil {
-					return false
-				}
-				if !srv.Bound() {
-					return false
-				}
-				if trapOn && (sink == nil || !sink.Bound()) {
-					return false
-				}
-				return true
+				return observability.Evaluate(svc.HealthFacts()).Ready
 			},
+			PublicMetrics: publicMetrics,
+			Metrics:       metrics,
+			Logger:        logger,
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
@@ -257,7 +282,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	return 0
 }
 
-func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing) (*snmpsink.Server, error) {
+func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry) (*snmpsink.Server, error) {
 	if ring == nil {
 		ring = store.NewTrapRing(store.TrapPolicy{
 			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
@@ -296,6 +321,7 @@ func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ri
 		MaxPerSec:             snap.MaxPerSec,
 		MaxPerIP:              snap.MaxPerIP,
 		Clock:                 sinkClock{snap.Clock},
+		Metrics:               metrics,
 	})
 }
 

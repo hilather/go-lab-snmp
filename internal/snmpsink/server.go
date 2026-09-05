@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/usm"
@@ -52,6 +53,7 @@ type Config struct {
 	MaxPerIP              int
 	MaxInflight           int
 	Clock                 Clock
+	Metrics               *observability.Registry
 }
 
 // Server is a receive-only SNMPv1/v2c/v3 UDP trap/inform listener.

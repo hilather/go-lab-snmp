@@ -10,6 +10,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/testutil"
@@ -68,6 +69,7 @@ func (s *App) Apply(ctx context.Context, actor Actor, in ChangeIn) (*ApplyResult
 	res, hooks, err := s.applyLocked(ctx, actor, in)
 	s.mu.Unlock()
 	if err != nil {
+		s.observeApply(err)
 		return nil, err
 	}
 	for _, fn := range hooks {
@@ -109,6 +111,14 @@ func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*Apply
 		StoreGeneration: s.storeGeneration(),
 	}
 	s.idemp.storeApply(in.IdempotencyKey, fp, res)
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventStateApply,
+			Component: "app",
+			Result:    "ok",
+		})
+	}
+	s.observeApply(nil)
 	return cloneApply(res), append([]func(){}, s.applyHooks...), nil
 }
 
@@ -289,6 +299,20 @@ func (s *App) storeGeneration() uint64 {
 		return 0
 	}
 	return s.overlay.Generation()
+}
+
+func (s *App) observeApply(err error) {
+	if s == nil || s.metrics == nil {
+		return
+	}
+	result := "ok"
+	if err != nil {
+		result = "error"
+		if de, ok := domainerr.As(err); ok && de.Code == domainerr.CodeRevisionConflict {
+			result = "conflict"
+		}
+	}
+	s.metrics.Inc(observability.MetricApplyTotal, map[string]string{"result": observability.ApplyResult(result)}, 1)
 }
 
 func warningsOf(snap *snapshot.Snapshot) []Warning {

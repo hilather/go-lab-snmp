@@ -11,8 +11,43 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
+
+func TestMetricsPublicPath(t *testing.T) {
+	svc := bootTestApp(t)
+	reg := observability.NewRegistry()
+	reg.Inc(observability.MetricPDUsTotal, map[string]string{"version": "v2c", "pdu": "get", "decision": "ok"}, 1)
+	s, err := New(Config{Service: svc, RatePerSec: -1, PublicMetrics: true, Metrics: reg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("metrics %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "openmetrics") {
+		t.Fatalf("content-type %s", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "labsnmp_pdus_total") || !strings.HasSuffix(body, "# EOF\n") {
+		t.Fatal(body)
+	}
+	if strings.Contains(body, "client_ip") {
+		t.Fatal("client IP in scrape")
+	}
+
+	s2, _ := newTestServer(t)
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w = httptest.NewRecorder()
+	s2.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("private metrics want 404, got %d", w.Code)
+	}
+}
 
 func TestHealthUnauthenticated(t *testing.T) {
 	s, _ := newTestServer(t)
