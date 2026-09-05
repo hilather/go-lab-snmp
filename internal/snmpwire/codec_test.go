@@ -3,6 +3,8 @@ package snmpwire
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -379,6 +381,73 @@ func TestMaxMessageSizeCap(t *testing.T) {
 func TestUnsupportedVersion(t *testing.T) {
 	if _, err := Encode(Message{Version: 2, PDU: &PDU{Type: PDUGet}}); !errors.Is(err, ErrVersion) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestV3RequestPDUMutationEncoded(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "packets", "v3-get.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := msg.RequestPDU()
+	if p == nil || p.Type != PDUGet {
+		t.Fatalf("decoded PDU %+v", p)
+	}
+	id := p.RequestID
+	p.Type = PDUResponse
+	p.VarBinds = []VarBind{vb(sysDescr(), OctetString([]byte("LabSNMP")))}
+	out := mustEncode(t, msg)
+	got, err := Decode(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gp := got.RequestPDU()
+	if gp == nil || gp.Type != PDUResponse {
+		t.Fatalf("encoded PDU type %v, want response", gp)
+	}
+	if gp.RequestID != id {
+		t.Fatalf("request-id %d want %d", gp.RequestID, id)
+	}
+	if !bytes.Equal(gp.VarBinds[0].Value.Bytes, []byte("LabSNMP")) {
+		t.Fatalf("value %q", gp.VarBinds[0].Value.Bytes)
+	}
+}
+
+func TestV3ReplacePDUPointerEncoded(t *testing.T) {
+	in := Message{
+		Version:          VersionV3,
+		MsgID:            9,
+		MsgMaxSize:       65507,
+		MsgFlags:         FlagReportable,
+		MsgSecurityModel: SecurityModelUSM,
+		USM:              USMParameters{UserName: []byte("alice")},
+		ScopedPDU: &ScopedPDU{
+			ContextEngineID: []byte{1, 2, 3, 4, 5},
+			PDU:             PDU{Type: PDUGet, RequestID: 9, VarBinds: []VarBind{vb(sysDescr(), Null())}},
+		},
+	}
+	msg, err := Decode(mustEncode(t, in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg.PDU = &PDU{
+		Type:      PDUResponse,
+		RequestID: 9,
+		VarBinds:  []VarBind{vb(sysDescr(), OctetString([]byte("ok")))},
+	}
+	got, err := Decode(mustEncode(t, msg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestPDU().Type != PDUResponse {
+		t.Fatalf("type %s", got.RequestPDU().Type)
+	}
+	if !bytes.Equal(got.ScopedPDU.ContextEngineID, []byte{1, 2, 3, 4, 5}) {
+		t.Fatalf("context engine %x", got.ScopedPDU.ContextEngineID)
 	}
 }
 

@@ -134,8 +134,8 @@ func decodeV3(r *reader) (Message, error) {
 		return Message{}, err
 	}
 	m.ScopedPDU = sp
-	p := sp.PDU.clone()
-	m.PDU = p
+	// Alias so RequestPDU() mutations are visible to Encode.
+	m.PDU = &sp.PDU
 	return m, nil
 }
 
@@ -330,14 +330,19 @@ func encodeV3(m Message) ([]byte, error) {
 		body = append(body, encodeOctetString(m.EncryptedPDU)...)
 		return body, nil
 	}
-	sp := m.ScopedPDU
-	if sp == nil {
-		if m.PDU == nil {
-			return nil, fmt.Errorf("snmpwire: v3 plaintext requires ScopedPDU: %w", ErrPDU)
+	var scoped ScopedPDU
+	switch {
+	case m.ScopedPDU != nil:
+		scoped = *m.ScopedPDU
+		if m.PDU != nil {
+			scoped.PDU = *m.PDU
 		}
-		sp = &ScopedPDU{PDU: *m.PDU}
+	case m.PDU != nil:
+		scoped.PDU = *m.PDU
+	default:
+		return nil, fmt.Errorf("snmpwire: v3 plaintext requires ScopedPDU: %w", ErrPDU)
 	}
-	content, err := encodeScopedPDUContent(*sp)
+	content, err := encodeScopedPDUContent(scoped)
 	if err != nil {
 		return nil, err
 	}

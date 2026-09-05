@@ -156,6 +156,7 @@ var RequiredFuzzCorpora = []string{
 	"internal/buildinfo/testdata/fuzz/FuzzInfoString",
 	"internal/config/testdata/fuzz/FuzzDecode",
 	"internal/snmpwire/testdata/fuzz/FuzzDecode",
+	"internal/snmpwire/testdata/fuzz/FuzzParseOID",
 }
 
 func checkFuzzCorpora(root string) error {

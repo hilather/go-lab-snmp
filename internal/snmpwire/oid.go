@@ -31,32 +31,36 @@ func ParseOID(s string) (OID, error) {
 		}
 		out[i] = uint32(v)
 	}
-	if out[0] > 2 {
-		return nil, fmt.Errorf("snmpwire: OID first arc must be 0..2: %w", ErrOID)
-	}
-	if out[0] < 2 && out[1] > 39 {
-		return nil, fmt.Errorf("snmpwire: OID second arc must be 0..39 when first is %d: %w", out[0], ErrOID)
+	if err := checkOID(out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
 
-func encodeOID(oid OID) ([]byte, error) {
+func checkOID(oid OID) error {
 	if len(oid) < 2 {
-		return nil, fmt.Errorf("snmpwire: OID needs at least two arcs: %w", ErrOID)
+		return fmt.Errorf("snmpwire: OID needs at least two arcs: %w", ErrOID)
 	}
 	if len(oid) > maxOIDArcs {
-		return nil, fmt.Errorf("snmpwire: OID too long: %w", ErrOID)
+		return fmt.Errorf("snmpwire: OID too long: %w", ErrOID)
 	}
 	if oid[0] > 2 {
-		return nil, fmt.Errorf("snmpwire: OID first arc must be 0..2: %w", ErrOID)
+		return fmt.Errorf("snmpwire: OID first arc must be 0..2: %w", ErrOID)
 	}
 	if oid[0] < 2 && oid[1] > 39 {
-		return nil, fmt.Errorf("snmpwire: OID second arc out of range: %w", ErrOID)
+		return fmt.Errorf("snmpwire: OID second arc must be 0..39 when first is %d: %w", oid[0], ErrOID)
+	}
+	if uint64(oid[0])*40+uint64(oid[1]) > 1<<32-1 {
+		return fmt.Errorf("snmpwire: OID first subidentifier overflow: %w", ErrOID)
+	}
+	return nil
+}
+
+func encodeOID(oid OID) ([]byte, error) {
+	if err := checkOID(oid); err != nil {
+		return nil, err
 	}
 	first := uint64(oid[0])*40 + uint64(oid[1])
-	if first > 1<<32-1 {
-		return nil, fmt.Errorf("snmpwire: OID first subidentifier overflow: %w", ErrOID)
-	}
 	buf := encodeSubID(nil, uint32(first))
 	for _, a := range oid[2:] {
 		buf = encodeSubID(buf, a)

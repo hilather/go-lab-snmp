@@ -18,7 +18,9 @@ Encode/decode SNMPv1, v2c, v3 messages and Get/GetNext/GetBulk/Set/Response/Trap
 USM crypto (USM-001), UDP listen, MIB tree.
 
 ## Tests
-Goldens from net-snmp captures; fuzz-smoke decoder; never import gosnmp.
+Constructed goldens in testdata/packets (1.0 corpus); skip-if-missing
+net-snmp `-d` interop in `_test.go`; fuzz-smoke decoder + OID parse;
+never import gosnmp.
 
 ## Acceptance
 Round-trip encode(decode(packet)) for each PDU class in testdata/packets.

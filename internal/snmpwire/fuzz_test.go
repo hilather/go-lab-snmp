@@ -46,6 +46,8 @@ func FuzzParseOID(f *testing.F) {
 	f.Add("")
 	f.Add("1")
 	f.Add("2.999")
+	f.Add("2.4294967215")
+	f.Add("2.4294967216")
 	f.Fuzz(func(t *testing.T, s string) {
 		oid, err := ParseOID(s)
 		if err != nil {

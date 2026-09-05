@@ -4,7 +4,10 @@ Status: Proposed
 Owners: Testing
 Last reviewed: 2026-09-04
 
-Unit next to the package. Packet goldens from net-snmp `-d` traces.
+Unit next to the package. Packet goldens in `testdata/packets` are
+constructed valid messages (1.0 committed corpus). Skip-if-missing
+net-snmp `-d` interop in `_test.go` supplements them when `snmp*`
+tools are installed.
 Interop: snmpget/walk/set/trap as tests via `internal/snmptest` and,
 in `_test.go` only, net-snmp binaries if present (skip if missing).
 

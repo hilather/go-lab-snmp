@@ -14,6 +14,7 @@ func TestParseOID(t *testing.T) {
 		{".1.3.6.1.2.1.1.1.0", OID{1, 3, 6, 1, 2, 1, 1, 1, 0}},
 		{"0.0", OID{0, 0}},
 		{"2.999", OID{2, 999}},
+		{"2.4294967215", OID{2, 4294967215}},
 	}
 	for _, tc := range cases {
 		got, err := ParseOID(tc.in)
@@ -30,7 +31,7 @@ func TestParseOID(t *testing.T) {
 }
 
 func TestParseOIDRejects(t *testing.T) {
-	bads := []string{"", ".", "1", "1.", ".1.", "1..2", "foo.1", "3.1", "1.40", "1.3.x"}
+	bads := []string{"", ".", "1", "1.", ".1.", "1..2", "foo.1", "3.1", "1.40", "1.3.x", "2.4294967216"}
 	for _, s := range bads {
 		if _, err := ParseOID(s); err == nil {
 			t.Fatalf("ParseOID(%q) succeeded", s)
@@ -46,6 +47,7 @@ func TestOIDRoundTrip(t *testing.T) {
 		{0, 0},
 		{2, 999, 1},
 		{1, 3, 6, 1, 4, 1, 2021, 8, 1},
+		{2, 4294967215},
 	}
 	for _, oid := range oids {
 		b, err := encodeOID(oid)
