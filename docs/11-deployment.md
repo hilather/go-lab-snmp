@@ -29,9 +29,13 @@ Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
 
 ## Appliance smoke vs integrator
 
-Default `make test-container` and `examples/compose.smoke.yaml` bind
-**`:1161` / `:1162`** with `cap_drop: ALL` (no `NET_BIND_SERVICE`).
-Interop uses net-snmp CLI as client when installed (skip if missing).
+Default `make test-container` runs `docker compose -f
+examples/compose.smoke.yaml up --build` (fail closed without the
+compose plugin). The file has `build.context: ..` so a clean tree
+does not pull an unpublished `:test` tag. Smoke binds **`:1161` /
+`:1162`** with `cap_drop: ALL` (no `NET_BIND_SERVICE`). Healthcheck
+`start_period` is 3s (matches the image). Interop uses net-snmp CLI
+as client when installed (skip if missing).
 
 Integrator compose binds IANA **`:161` / `:162`** inside the
 container and restores **only** `cap_add: [NET_BIND_SERVICE]`. Host
@@ -61,4 +65,4 @@ without turning `userland-proxy` off.
 | `--trap-listen` | empty → YAML `:162` | `off` disables trap |
 | `--management-listen` | **off** | YAML `management.address` does not bind unless this flag is an address. Image CMD `:8088`. |
 | `--shutdown-timeout` | 10s | drain |
-| `--pid-file` | empty | write pid after binds |
+| `--pid-file` | empty | write pid after binds; write failure shuts down and exits 1; unlinked on shutdown |

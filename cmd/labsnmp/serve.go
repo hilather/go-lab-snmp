@@ -297,28 +297,40 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		_, _ = fmt.Fprintln(stdout, "labsnmp management: not bound")
 	}
 
+	pidWritten := false
 	if flags.PIDFile != "" {
 		if err := os.WriteFile(flags.PIDFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: pid-file: %v\n", err)
+			shutdownPlanes(restSrv, sink, srv, flags.ShutdownTimeout)
+			return 1
 		}
+		pidWritten = true
 	}
 
 	<-ctx.Done()
-	deadline := flags.ShutdownTimeout
-	if deadline <= 0 {
-		deadline = defaultShutdownTimeout
+	shutdownPlanes(restSrv, sink, srv, flags.ShutdownTimeout)
+	if pidWritten {
+		_ = os.Remove(flags.PIDFile)
 	}
-	shctx, cancel := context.WithTimeout(context.Background(), deadline)
-	defer cancel()
-	if restSrv != nil {
-		_ = restSrv.Shutdown(shctx)
-	}
-	if sink != nil {
-		_ = sink.Shutdown(shctx)
-	}
-	_ = srv.Shutdown(shctx)
 	_, _ = fmt.Fprintln(stdout, "labsnmp: shutting down")
 	return 0
+}
+
+func shutdownPlanes(restSrv *rest.Server, sink *snmpsink.Server, srv *snmpagent.Server, d time.Duration) {
+	if d <= 0 {
+		d = defaultShutdownTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	if restSrv != nil {
+		_ = restSrv.Shutdown(ctx)
+	}
+	if sink != nil {
+		_ = sink.Shutdown(ctx)
+	}
+	if srv != nil {
+		_ = srv.Shutdown(ctx)
+	}
 }
 
 func serveUIEnabled(svc *app.App) func() bool {

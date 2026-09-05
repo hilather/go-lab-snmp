@@ -6,6 +6,8 @@
 services:
   labsnmp:
     image: ghcr.io/hilather/labsnmp:test
+    build:
+      context: ..
     command:
       - serve
       - --config=/etc/labsnmp/config.yaml
@@ -33,6 +35,7 @@ services:
       test: ["CMD", "/labsnmp", "healthcheck", "--url=http://127.0.0.1:8088/v1/health/ready"]
       interval: 10s
       timeout: 3s
+      start_period: 3s
       retries: 3
     networks:
       - default

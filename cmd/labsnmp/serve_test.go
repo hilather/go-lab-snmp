@@ -402,6 +402,30 @@ func TestServeWritesPIDFile(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("serve did not exit")
 	}
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Fatalf("pid-file still present after shutdown: %v", err)
+	}
+}
+
+func TestServePIDFileWriteFailure(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	pidPath := filepath.Join(t.TempDir(), "missing", "labsnmp.pid")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var stderr bytes.Buffer
+	code := serveWithContext(ctx, []string{
+		"--config", "testdata/config/valid/full.yaml",
+		"--snmp-listen", "127.0.0.1:0",
+		"--trap-listen", "off",
+		"--pid-file", pidPath,
+		"--shutdown-timeout", "2s",
+	}, io.Discard, &stderr)
+	if code != 1 {
+		t.Fatalf("exit %d, want 1 stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "pid-file") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
 }
 
 func TestResolveTrapListen(t *testing.T) {

@@ -54,6 +54,8 @@ func TestComposeSmokeContract(t *testing.T) {
 	s := string(body)
 	for _, want := range []string{
 		"labsnmp:",
+		"build:",
+		"context: ..",
 		"--snmp-listen=:1161",
 		"--trap-listen=:1162",
 		"--management-listen=:8088",
@@ -61,6 +63,9 @@ func TestComposeSmokeContract(t *testing.T) {
 		"- ALL",
 		`user: "65532:65532"`,
 		"/v1/health/ready",
+		"start_period: 3s",
+		"127.0.0.1:1161:1161/udp",
+		"127.0.0.1:1162:1162/udp",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("compose.smoke.yaml missing %q", want)
