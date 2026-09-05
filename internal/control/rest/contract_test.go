@@ -25,15 +25,21 @@ func TestMetricsPublicPath(t *testing.T) {
 	svc := bootTestApp(t)
 	reg := observability.NewRegistry()
 	reg.Inc(observability.MetricPDUsTotal, map[string]string{"version": "v2c", "pdu": "get", "decision": "ok"}, 1)
-	s, err := New(Config{Service: svc, RatePerSec: -1, Metrics: reg, Ready: func() bool { return true }})
+	s, err := New(Config{
+		Service:    svc,
+		RatePerSec: -1,
+		Metrics:    reg,
+		Ready:      func() bool { return true },
+		Auth:       auth.Static(testToken, "admin", model.RoleAdministrator),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("default publicPath false want 404, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("default publicPath false want 401, got %d", w.Code)
 	}
 
 	snap := svc.Active()
@@ -311,7 +317,21 @@ func TestOriginsFollowReset(t *testing.T) {
 
 func TestPublicMetricsSkipsAuth(t *testing.T) {
 	svc := bootTestApp(t)
-	s, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator), PublicMetrics: true})
+	snap := svc.Active()
+	if _, err := svc.Apply(context.Background(), app.Actor{ID: "test", Class: "test", Transport: "rest", Scopes: model.ScopesForRole(model.RoleAdministrator)}, app.ChangeIn{
+		ExpectedRevision: snap.Revision,
+		IdempotencyKey:   "obs-skip-auth",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceObservability,
+			Observability: &model.ObservabilitySpec{
+				LogLevel: model.LogLevelInfo,
+				Metrics:  model.MetricsSpec{PublicPath: true},
+			},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,10 +354,21 @@ func TestPublicMetricsSkipsAuth(t *testing.T) {
 }
 
 func TestPublicMetricsFollowsApply(t *testing.T) {
-	s, _ := newTestServer(t)
-	s.sec.Lock()
-	s.cfg.PublicMetrics = true
-	s.sec.Unlock()
+	s, svc := newTestServer(t)
+	snap := svc.Active()
+	if _, err := svc.Apply(context.Background(), app.Actor{ID: "test", Class: "test", Transport: "rest", Scopes: model.ScopesForRole(model.RoleAdministrator)}, app.ChangeIn{
+		ExpectedRevision: snap.Revision,
+		IdempotencyKey:   "obs-follow-public",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceObservability,
+			Observability: &model.ObservabilitySpec{
+				LogLevel: model.LogLevelInfo,
+				Metrics:  model.MetricsSpec{PublicPath: true},
+			},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
