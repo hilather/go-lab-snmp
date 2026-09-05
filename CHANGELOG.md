@@ -33,6 +33,9 @@ All notable user-visible and operator-visible changes are recorded here.
   Bind failure of any enabled data-plane listener is exit 1. Image
   `EXPOSE 161/tcp 162/tcp` (not `10161/udp`). Smoke compose stays
   UDP `:1161`/`:1162`.
+- Operator SPA Status and Overview show Agent TCP / Agent DTLS
+  dt/dd when `status.listeners` includes `agent-tcp` / `agent-dtls`.
+  Features page still twelve ids. No new capability IDs (UI-110).
 
 ### Changed
 
