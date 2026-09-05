@@ -305,18 +305,36 @@ func addrString(addr net.Addr) string {
 }
 
 func (s *Server) observeTrap(version, decision string) {
-	if s == nil || s.cfg.Metrics == nil {
+	if s == nil {
 		return
 	}
 	dec := observability.TrapDecision(decision)
-	s.cfg.Metrics.Inc(observability.MetricTrapsTotal, map[string]string{
-		"version":  observability.SNMPVersion(version),
-		"decision": dec,
-	}, 1)
-	if dec == "auth_fail" {
-		s.cfg.Metrics.Inc(observability.MetricAuthFailTotal, map[string]string{
-			"version": observability.SNMPVersion(version),
+	if s.cfg.Metrics != nil {
+		s.cfg.Metrics.Inc(observability.MetricTrapsTotal, map[string]string{
+			"version":  observability.SNMPVersion(version),
+			"decision": dec,
 		}, 1)
+		if dec == "auth_fail" {
+			s.cfg.Metrics.Inc(observability.MetricAuthFailTotal, map[string]string{
+				"version": observability.SNMPVersion(version),
+			}, 1)
+		}
+	}
+	if s.cfg.Logger == nil {
+		return
+	}
+	s.cfg.Logger.Log(observability.Record{
+		Event:     observability.EventSNMPTrap,
+		Component: "snmpsink",
+		Result:    dec,
+	})
+	if dec == "auth_fail" {
+		s.cfg.Logger.Log(observability.Record{
+			Event:     observability.EventAuthFailure,
+			Component: "snmpsink",
+			Level:     observability.LevelWarn,
+			Result:    dec,
+		})
 	}
 }
 

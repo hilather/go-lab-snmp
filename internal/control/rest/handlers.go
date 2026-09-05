@@ -114,7 +114,7 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request, inst
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request, instance string) {
-	if !s.cfg.PublicMetrics {
+	if !s.publicMetrics(r.Context()) {
 		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
 		return
 	}

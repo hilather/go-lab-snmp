@@ -54,6 +54,7 @@ type Config struct {
 	MaxInflight           int
 	Clock                 Clock
 	Metrics               *observability.Registry
+	Logger                *observability.Logger
 }
 
 // Server is a receive-only SNMPv1/v2c/v3 UDP trap/inform listener.

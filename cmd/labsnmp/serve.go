@@ -161,6 +161,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		Queries: svc.Queries(),
 		Clock:   snap.Clock,
 		Metrics: metrics,
+		Logger:  logger,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
@@ -175,7 +176,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var sink *snmpsink.Server
 	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
 	if trapOn {
-		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps(), metrics)
+		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps(), metrics, logger)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -206,6 +207,15 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			MgmtOff:    mgmtOff,
 		}
 	})
+	syncObs := func() {
+		live := svc.Active()
+		if live == nil || live.Canonical == nil {
+			return
+		}
+		logger.SetLevel(observability.ParseLevel(live.Canonical.Spec.Observability.LogLevel))
+	}
+	svc.OnApply(syncObs)
+	svc.OnReset(syncObs)
 	if !mgmtOff {
 		origins := []string{}
 		bodyLimit := config.DefaultBodyLimit
@@ -214,10 +224,6 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			if st.Spec.Management.BodyLimit > 0 {
 				bodyLimit = st.Spec.Management.BodyLimit
 			}
-		}
-		publicMetrics := false
-		if st != nil {
-			publicMetrics = st.Spec.Observability.Metrics.PublicPath
 		}
 		restSrv, err = rest.New(rest.Config{
 			Addr:           flags.ManagementListen,
@@ -229,9 +235,8 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			Ready: func() bool {
 				return observability.Evaluate(svc.HealthFacts()).Ready
 			},
-			PublicMetrics: publicMetrics,
-			Metrics:       metrics,
-			Logger:        logger,
+			Metrics: metrics,
+			Logger:  logger,
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
@@ -282,7 +287,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	return 0
 }
 
-func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry) (*snmpsink.Server, error) {
+func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger) (*snmpsink.Server, error) {
 	if ring == nil {
 		ring = store.NewTrapRing(store.TrapPolicy{
 			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
@@ -322,6 +327,7 @@ func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ri
 		MaxPerIP:              snap.MaxPerIP,
 		Clock:                 sinkClock{snap.Clock},
 		Metrics:               metrics,
+		Logger:                logger,
 	})
 }
 

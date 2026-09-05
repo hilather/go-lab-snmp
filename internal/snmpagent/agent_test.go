@@ -1,8 +1,11 @@
 package snmpagent
 
 import (
+	"bytes"
+	"context"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,9 +33,30 @@ func TestGETPublicSysDescr(t *testing.T) {
 }
 
 func TestUnknownCommunitySilentDrop(t *testing.T) {
-	s := startAgent(t, loadFull(t, nil))
+	var logBuf bytes.Buffer
+	snap := loadFull(t, nil)
+	st := snapshot.NewStore()
+	st.InstallBootstrap(snap)
+	s, err := New(Config{
+		Addr:    "127.0.0.1:0",
+		Store:   st,
+		Clock:   snap.Clock,
+		Metrics: observability.NewRegistry(),
+		Logger:  observability.NewLogger(&logBuf, observability.LevelInfo),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
 	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "nope", 1, sysDescr())
-	_, err := snmptest.Exchange(dst(s), req, 200*time.Millisecond)
+	_, err = snmptest.Exchange(dst(s), req, 200*time.Millisecond)
 	if err == nil {
 		t.Fatal("unknown community must drop")
 	}
@@ -41,6 +65,13 @@ func TestUnknownCommunitySilentDrop(t *testing.T) {
 	}
 	if v, ok := s.metrics.Get(observability.MetricAuthFailTotal, map[string]string{"version": "v2c"}); !ok || v < 1 {
 		t.Fatal("labsnmp_auth_fail_total")
+	}
+	logs := logBuf.String()
+	if !strings.Contains(logs, `"event":"snmp.pdu"`) || !strings.Contains(logs, `"event":"auth.failure"`) {
+		t.Fatalf("catalog events missing: %s", logs)
+	}
+	if strings.Contains(logs, "nope") || strings.Contains(logs, "client_ip") {
+		t.Fatal("secret/ip leaked into slog")
 	}
 }
 

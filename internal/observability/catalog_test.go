@@ -119,6 +119,10 @@ func TestEvaluateReady(t *testing.T) {
 	if p.Ready {
 		t.Fatal("missing snapshot")
 	}
+	p = Evaluate(Facts{SnapshotUp: true})
+	if p.Ready {
+		t.Fatal("fail-closed without listener facts")
+	}
 }
 
 func TestLabelHelpers(t *testing.T) {

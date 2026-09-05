@@ -75,6 +75,7 @@ func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 		Queries: store.NewQueryRing(store.DefaultQueryRing),
 		Clock:   snap.Clock,
 		Metrics: observability.NewRegistry(),
+		Logger:  observability.NewLogger(&bytes.Buffer{}, observability.LevelInfo),
 	})
 	if err != nil {
 		t.Fatal(err)

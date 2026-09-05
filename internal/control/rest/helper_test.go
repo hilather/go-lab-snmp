@@ -59,7 +59,7 @@ func newTestServer(t *testing.T) (*Server, *app.App) {
 
 func newServerFor(t *testing.T, svc *app.App) (*Server, *app.App) {
 	t.Helper()
-	s, err := New(Config{Service: svc, RatePerSec: -1})
+	s, err := New(Config{Service: svc, RatePerSec: -1, Ready: func() bool { return true }})
 	if err != nil {
 		t.Fatal(err)
 	}

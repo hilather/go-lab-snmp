@@ -194,18 +194,36 @@ func pduType(msg snmpwire.Message) string {
 }
 
 func (s *Server) observePDU(version, pdu, decision string) {
-	if s == nil || s.metrics == nil {
+	if s == nil {
 		return
 	}
 	dec := observability.PDUDecision(decision)
-	s.metrics.Inc(observability.MetricPDUsTotal, map[string]string{
-		"version":  observability.SNMPVersion(version),
-		"pdu":      observability.PDUType(pdu),
-		"decision": dec,
-	}, 1)
-	if dec == "auth_fail" {
-		s.metrics.Inc(observability.MetricAuthFailTotal, map[string]string{
-			"version": observability.SNMPVersion(version),
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricPDUsTotal, map[string]string{
+			"version":  observability.SNMPVersion(version),
+			"pdu":      observability.PDUType(pdu),
+			"decision": dec,
 		}, 1)
+		if dec == "auth_fail" {
+			s.metrics.Inc(observability.MetricAuthFailTotal, map[string]string{
+				"version": observability.SNMPVersion(version),
+			}, 1)
+		}
+	}
+	if s.logger == nil {
+		return
+	}
+	s.logger.Log(observability.Record{
+		Event:     observability.EventSNMPPDU,
+		Component: "snmpagent",
+		Result:    dec,
+	})
+	if dec == "auth_fail" {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventAuthFailure,
+			Component: "snmpagent",
+			Level:     observability.LevelWarn,
+			Result:    dec,
+		})
 	}
 }

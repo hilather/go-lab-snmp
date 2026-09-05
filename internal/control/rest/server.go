@@ -151,21 +151,7 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return errors.New("rest: server already started")
 	}
-	rh := s.cfg.ReadHeaderTimeout
-	if rh <= 0 {
-		rh = DefaultReadHeaderTimeout
-	}
-	rt := s.cfg.ReadTimeout
-	if rt <= 0 {
-		rt = DefaultReadTimeout
-	}
-	hs := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: rh,
-		ReadTimeout:       rt,
-		WriteTimeout:      s.cfg.WriteTimeout,
-		MaxHeaderBytes:    1 << 16,
-	}
+	hs := s.newHTTPServer()
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
@@ -182,7 +168,26 @@ func (s *Server) Serve(ln net.Listener) error {
 	return err
 }
 
+func (s *Server) newHTTPServer() *http.Server {
+	rh := s.cfg.ReadHeaderTimeout
+	if rh <= 0 {
+		rh = DefaultReadHeaderTimeout
+	}
+	rt := s.cfg.ReadTimeout
+	if rt <= 0 {
+		rt = DefaultReadTimeout
+	}
+	return &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       rt,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		MaxHeaderBytes:    1 << 16,
+	}
+}
+
 // Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
+// Bound stays true on the new listener as soon as Listen succeeds (docs/09).
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
@@ -202,20 +207,20 @@ func (s *Server) Rebind(addr string) error {
 	if err != nil {
 		return err
 	}
-	old := func() *http.Server {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		hs := s.http
-		s.http = nil
-		s.closed.Store(false)
-		return hs
-	}()
+	hs := s.newHTTPServer()
+	s.mu.Lock()
+	old := s.http
+	s.http = hs
+	s.ln = ln
+	s.addr = ln.Addr().String()
+	s.closed.Store(false)
+	s.mu.Unlock()
+	go func() { _ = hs.Serve(ln) }()
 	if old != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = old.Shutdown(ctx)
 		cancel()
 	}
-	go func() { _ = s.Serve(ln) }()
 	return nil
 }
 
@@ -315,13 +320,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			s.writeProblem(w, r, instance, domainerr.MethodNotAllowed("method not allowed"))
 			return
 		}
-		if !s.skipAuth(rt.cap) {
+		if !s.skipAuth(r.Context(), rt.cap) {
 			if err := s.rate.allow(r.RemoteAddr); err != nil {
 				s.writeProblem(w, r, instance, err)
 				return
 			}
 		}
-		actor, err := s.authenticate(r, s.skipAuth(rt.cap))
+		actor, err := s.authenticate(r, s.skipAuth(r.Context(), rt.cap))
 		if err != nil {
 			s.writeProblem(w, r, instance, err)
 			return
@@ -344,11 +349,24 @@ func isHealthCap(cap capabilities.Capability) bool {
 	return cap.ID == capabilities.HealthLive || cap.ID == capabilities.HealthReady
 }
 
-func (s *Server) skipAuth(cap capabilities.Capability) bool {
+func (s *Server) publicMetrics(ctx context.Context) bool {
+	if s.svc != nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		st, err := s.svc.GetState(ctx, app.Actor{ID: "probe", Class: "startup", Transport: "rest"})
+		if err == nil && st != nil && st.Canonical != nil {
+			return st.Canonical.Spec.Observability.Metrics.PublicPath
+		}
+	}
+	return s.cfg.PublicMetrics
+}
+
+func (s *Server) skipAuth(ctx context.Context, cap capabilities.Capability) bool {
 	if isHealthCap(cap) {
 		return true
 	}
-	return cap.ID == capabilities.MetricsGet && s.cfg.PublicMetrics
+	return cap.ID == capabilities.MetricsGet && s.publicMetrics(ctx)
 }
 
 func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance string) bool {

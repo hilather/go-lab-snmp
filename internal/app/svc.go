@@ -256,12 +256,7 @@ func (s *App) HealthFacts() observability.Facts {
 		f.SnapshotUp = snapUp
 		return f
 	}
-	return observability.Facts{
-		SnapshotUp: snapUp,
-		AgentBound: snapUp,
-		TrapBound:  snapUp,
-		MgmtOff:    true,
-	}
+	return observability.Facts{SnapshotUp: snapUp}
 }
 
 // OnReset registers a hook fired after a successful Reset (outside the mutex).

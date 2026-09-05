@@ -36,6 +36,7 @@ type Record struct {
 // Logger writes slog JSON events.
 type Logger struct {
 	mu      sync.Mutex
+	w       io.Writer
 	handler slog.Handler
 	min     slog.Level
 	reg     *Registry
@@ -69,17 +70,46 @@ func slogLevel(l Level) slog.Level {
 	}
 }
 
+func jsonHandler(w io.Writer, lvl slog.Level) slog.Handler {
+	if w == nil {
+		return nil
+	}
+	return slog.NewJSONHandler(w, &slog.HandlerOptions{
+		Level: lvl,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			switch a.Key {
+			case slog.TimeKey:
+				a.Key = "timestamp"
+			case slog.MessageKey:
+				return slog.Attr{}
+			}
+			return a
+		},
+	})
+}
+
 // NewLogger writes JSON lines to w on the calling goroutine. w may be nil (discard).
 func NewLogger(w io.Writer, min Level) *Logger {
 	if min == "" {
 		min = LevelInfo
 	}
 	lvl := slogLevel(min)
-	var h slog.Handler
-	if w != nil {
-		h = slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lvl})
+	return &Logger{w: w, handler: jsonHandler(w, lvl), min: lvl, now: time.Now}
+}
+
+// SetLevel reapplies spec.observability.logLevel on a live apply/reset.
+func (l *Logger) SetLevel(min Level) {
+	if l == nil {
+		return
 	}
-	return &Logger{handler: h, min: lvl, now: time.Now}
+	if min == "" {
+		min = LevelInfo
+	}
+	lvl := slogLevel(min)
+	l.mu.Lock()
+	l.min = lvl
+	l.handler = jsonHandler(l.w, lvl)
+	l.mu.Unlock()
 }
 
 // SetRegistry attaches optional drop counters.
