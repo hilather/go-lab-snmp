@@ -18,6 +18,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/control/mcp"
 	"github.com/hilather/go-lab-snmp/internal/control/rest"
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/observability"
@@ -202,6 +203,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 
 	var restSrv *rest.Server
+	var mcpSrv *mcp.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	svc.SetHealth(func() observability.Facts {
 		return observability.Facts{
@@ -246,12 +248,36 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		origins := []string{}
 		bodyLimit := config.DefaultBodyLimit
 		publicMetrics := false
+		allowLegacy := false
 		if st != nil {
 			origins = st.Spec.Management.AllowedOrigins
 			if st.Spec.Management.BodyLimit > 0 {
 				bodyLimit = st.Spec.Management.BodyLimit
 			}
 			publicMetrics = st.Spec.Observability.Metrics.PublicPath
+			allowLegacy = st.Spec.Management.MCP.AllowLegacyClients
+		}
+		mcpSrv, err = mcp.New(mcp.Config{
+			Service:            svc,
+			AllowedOrigins:     origins,
+			AllowLegacyClients: allowLegacy,
+			RatePerSec:         -1,
+			MaxBodyBytes:       bodyLimit,
+			Auth:               v,
+		})
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: mcp: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if sink != nil {
+				_ = sink.Shutdown(shctx)
+			}
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		mcpPath := mcp.DefaultPath
+		if st != nil && strings.TrimSpace(st.Spec.Listeners.Management.MCPPath) != "" {
+			mcpPath = st.Spec.Listeners.Management.MCPPath
 		}
 		restSrv, err = rest.New(rest.Config{
 			Addr:           flags.ManagementListen,
@@ -267,13 +293,15 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			},
 			Metrics: metrics,
 			Logger:  logger,
-			// rest must not import web. UI-001 replaces the placeholder embed;
-			// web.UIEnabled stays false so GET / is 404 problem+json until then.
 			UI:        http.FileServer(http.FS(web.Files())),
 			UIEnabled: serveUIEnabled(svc),
+			Mounts: map[string]http.Handler{
+				mcpPath: mcpSrv.Handler(),
+			},
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
+			mcpSrv.Close()
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			if sink != nil {
 				_ = sink.Shutdown(shctx)
@@ -311,6 +339,9 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	shutdownPlanes(restSrv, sink, srv, flags.ShutdownTimeout)
 	if pidWritten {
 		_ = os.Remove(flags.PIDFile)
+	}
+	if mcpSrv != nil {
+		mcpSrv.Close()
 	}
 	_, _ = fmt.Fprintln(stdout, "labsnmp: shutting down")
 	return 0

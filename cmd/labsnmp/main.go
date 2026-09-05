@@ -34,8 +34,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "healthcheck":
 		return healthcheckCmd(args[2:], stdout, stderr)
 	case "mcp-stdio":
-		_, _ = fmt.Fprintf(stderr, "labsnmp %s: not implemented\n", args[1])
-		return 1
+		return mcpStdioCmd(args[2:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", args[1])
 		printUsage(stderr)

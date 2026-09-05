@@ -1,0 +1,73 @@
+{
+  "apiVersion": "labsnmp.dev/mcp/v1",
+  "generatedBy": "internal/control/mcp.RenderManifest; DO NOT EDIT.",
+  "protocol": "2026-07-28",
+  "sdk": "github.com/modelcontextprotocol/go-sdk",
+  "sdkVersion": "v1.7.0",
+  "tools": [
+    "snmp_version_get",
+    "snmp_capabilities_get",
+    "snmp_status_get",
+    "snmp_schema_get",
+    "snmp_features_list",
+    "snmp_state_get",
+    "snmp_state_validate",
+    "snmp_state_export",
+    "snmp_state_reset",
+    "snmp_change_plan",
+    "snmp_change_apply",
+    "snmp_maps_list",
+    "snmp_map_get",
+    "snmp_map_query",
+    "snmp_oid_set",
+    "snmp_oid_get",
+    "snmp_queries_list",
+    "snmp_preview_get",
+    "snmp_communities_list",
+    "snmp_users_list",
+    "snmp_traps_list",
+    "snmp_trap_get",
+    "snmp_trap_raw_get",
+    "snmp_traps_wait",
+    "snmp_traps_clear",
+    "snmp_stats_get",
+    "snmp_audit_query",
+    "snmp_audit_get"
+  ],
+  "resources": [
+    "labsnmp://capabilities",
+    "labsnmp://status",
+    "labsnmp://features",
+    "labsnmp://state",
+    "labsnmp://maps",
+    "labsnmp://maps/{name}",
+    "labsnmp://queries",
+    "labsnmp://traps",
+    "labsnmp://traps/{id}",
+    "labsnmp://stats"
+  ],
+  "mutatingTools": [
+    "snmp_state_reset",
+    "snmp_change_apply",
+    "snmp_oid_set",
+    "snmp_traps_clear"
+  ],
+  "featureIds": [
+    "maps",
+    "communities",
+    "users",
+    "trapStorePolicy",
+    "admission",
+    "agentCaps",
+    "observability",
+    "listeners.agent.address",
+    "listeners.traps.address",
+    "listeners.management.address",
+    "engine",
+    "auth"
+  ],
+  "healthNotTools": [
+    "health.live",
+    "health.ready"
+  ]
+}

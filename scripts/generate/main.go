@@ -1,5 +1,5 @@
 // Command generate writes api/capabilities/v1.json, api/openapi/v1.json,
-// and api/metrics/v1alpha1.json. MCP catalog fails closed until MCP-001.
+// api/metrics/v1alpha1.json, and api/mcp/v1.json.
 package main
 
 import (
@@ -25,14 +25,6 @@ func main() {
 	}
 	files, err := plannedFiles()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "generate: %v\n", err)
-		os.Exit(1)
-	}
-	if err := assertMCPMetricsFailClosed(); err != nil {
-		fmt.Fprintf(os.Stderr, "generate: %v\n", err)
-		os.Exit(1)
-	}
-	if err := assertDeferredAbsent(root); err != nil {
 		fmt.Fprintf(os.Stderr, "generate: %v\n", err)
 		os.Exit(1)
 	}
@@ -67,27 +59,16 @@ func plannedFiles() ([]artifact, error) {
 	if err != nil {
 		return nil, fmt.Errorf("metrics: %w", err)
 	}
+	mcpManifest, err := mcp.RenderManifest()
+	if err != nil {
+		return nil, fmt.Errorf("mcp: %w", err)
+	}
 	return []artifact{
 		{capabilities.ManifestRelPath, manifest},
 		{rest.OpenAPIRelPath, openapi},
 		{observability.CatalogRelPath, metrics},
+		{mcp.ManifestRelPath, mcpManifest},
 	}, nil
-}
-
-func assertMCPMetricsFailClosed() error {
-	if _, err := mcp.RenderManifest(); err == nil {
-		return errors.New("mcp catalog must fail closed until MCP-001")
-	}
-	return nil
-}
-
-func assertDeferredAbsent(root string) error {
-	for _, rel := range []string{"api/mcp/v1.json"} {
-		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err == nil {
-			return fmt.Errorf("%s must not exist until MCP-001", rel)
-		}
-	}
-	return nil
 }
 
 func checkFiles(root string, files []artifact) error {
