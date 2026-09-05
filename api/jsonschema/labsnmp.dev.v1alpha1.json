@@ -27,8 +27,8 @@
           "properties": {
             "agent": { "$ref": "#/$defs/udpListener" },
             "traps": { "$ref": "#/$defs/udpListener" },
-            "dtls": { "$ref": "#/$defs/toggle" },
-            "tcp": { "$ref": "#/$defs/toggle" },
+            "dtls": { "$ref": "#/$defs/dtlsListener" },
+            "tcp": { "$ref": "#/$defs/tcpListener" },
             "management": {
               "type": "object",
               "additionalProperties": false,
@@ -158,10 +158,26 @@
         "address": { "type": "string" }
       }
     },
-    "toggle": {
+    "tcpListener": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "address": { "type": "string" },
+        "trapsAddress": { "type": "string" }
+      }
+    },
+    "dtlsListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "address": { "type": "string" },
+        "trapsAddress": { "type": "string" },
+        "certFile": { "type": "string" },
+        "keyFile": { "type": "string" },
+        "clientCAFile": { "type": "string" }
+      }
     },
     "map": {
       "type": "object",

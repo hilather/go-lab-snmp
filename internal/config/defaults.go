@@ -3,6 +3,8 @@ package config
 const (
 	DefaultAgentAddress       = ":161"
 	DefaultTrapAddress        = ":162"
+	DefaultDTLSAddress        = ":10161"
+	DefaultDTLSTrapsAddress   = ":10162"
 	DefaultMgmtAddress        = ":8088"
 	DefaultRESTPath           = "/v1"
 	DefaultMCPPath            = "/mcp"

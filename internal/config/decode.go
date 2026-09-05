@@ -223,6 +223,10 @@ func applyDecodeDefaults(v any) {
 	setDefaultAddress(trapsL, DefaultTrapAddress)
 	dtls := ensureMap(listeners, "dtls")
 	setDefault(dtls, "enabled", false)
+	if enabled, _ := dtls["enabled"].(bool); enabled {
+		setDefault(dtls, "address", DefaultDTLSAddress)
+		setDefault(dtls, "trapsAddress", DefaultDTLSTrapsAddress)
+	}
 	tcp := ensureMap(listeners, "tcp")
 	setDefault(tcp, "enabled", false)
 	mgmtL := ensureMap(listeners, "management")

@@ -202,13 +202,11 @@ func checkFuzzCorpora(root string) error {
 var requiredLimitations = []string{
 	"Not a production agent",
 	"No SMIv2 compiler",
-	"No TCP/DTLS",
 	"No AgentX",
 	"No trap forward",
 	"userland-proxy",
 	"Single replica",
 	"No OAuth",
-	"TLS-001",
 	"tls_unsupported",
 }
 
@@ -223,6 +221,9 @@ func checkKnownLimitations(root string) error {
 		if !strings.Contains(text, p) {
 			missing = append(missing, p)
 		}
+	}
+	if !strings.Contains(text, "TLSTM") && !strings.Contains(text, "TSM not implemented") {
+		missing = append(missing, `TLSTM or "TSM not implemented"`)
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("docs/known-limitations.md missing residual phrases: %s", strings.Join(missing, ", "))

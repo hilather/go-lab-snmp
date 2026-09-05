@@ -103,8 +103,8 @@ func KnownSNMPVersion(v string) bool {
 type ListenersSpec struct {
 	Agent      UDPListenerSpec  `json:"agent"`
 	Traps      UDPListenerSpec  `json:"traps"`
-	DTLS       ToggleSpec       `json:"dtls"`
-	TCP        ToggleSpec       `json:"tcp"`
+	DTLS       DTLSListenerSpec `json:"dtls"`
+	TCP        TCPListenerSpec  `json:"tcp"`
 	Management MgmtListenerSpec `json:"management"`
 }
 
@@ -114,9 +114,23 @@ type UDPListenerSpec struct {
 	Address string `json:"address"`
 }
 
-// ToggleSpec is a schema key that 1.0 must keep false.
-type ToggleSpec struct {
-	Enabled bool `json:"enabled"`
+// TCPListenerSpec is RFC 3430 SNMP over TCP. Empty addresses inherit
+// the effective UDP agent/trap address only when that UDP listener is on.
+type TCPListenerSpec struct {
+	Enabled      bool   `json:"enabled"`
+	Address      string `json:"address,omitempty"`
+	TrapsAddress string `json:"trapsAddress,omitempty"`
+}
+
+// DTLSListenerSpec is a DTLS 1.2 record layer wrapping community or USM
+// PDUs. It is not TLSTM/TSM and not TLS-over-TCP.
+type DTLSListenerSpec struct {
+	Enabled      bool   `json:"enabled"`
+	Address      string `json:"address,omitempty"`
+	TrapsAddress string `json:"trapsAddress,omitempty"`
+	CertFile     string `json:"certFile,omitempty"`
+	KeyFile      string `json:"keyFile,omitempty"`
+	ClientCAFile string `json:"clientCAFile,omitempty"`
 }
 
 // MgmtListenerSpec is the control-plane HTTP listener.

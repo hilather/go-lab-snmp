@@ -42,7 +42,8 @@ QA needs an SNMP endpoint that is version-accurate, identity-accurate, and map-a
 7. **Ready** = enabled agent and/or trap listeners bound + snapshot installed + (management bound OR `--management-listen=off`).
 8. **Community/user → exactly one named map.** Split-horizon is two maps.
 9. **SET overlay is ephemeral.** Reset drops it.
-10. **DTLS / TCP SNMP `enabled: true` rejected in 1.0.**
+10. **DTLS / TCP SNMP `enabled: true` is legal in 1.1** when
+    per-listener constraints hold. TLSTM/TSM is not implemented.
 
 ## Process model
 

@@ -8,12 +8,23 @@ import (
 )
 
 func readSecretFile(path, baseDir string) ([]byte, error) {
+	resolved, err := resolveFileRef(path, baseDir)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(resolved)
+}
+
+func resolveFileRef(path, baseDir string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, os.ErrNotExist
+		return "", os.ErrNotExist
 	}
 	if filepath.IsAbs(path) {
-		return os.ReadFile(path)
+		if err := regularFile(path); err != nil {
+			return "", err
+		}
+		return path, nil
 	}
 	candidates := []string{path}
 	if baseDir != "" {
@@ -24,15 +35,27 @@ func readSecretFile(path, baseDir string) ([]byte, error) {
 	}
 	var firstErr error
 	for _, c := range candidates {
-		b, err := os.ReadFile(c)
-		if err == nil {
-			return b, nil
-		}
-		if firstErr == nil {
+		if err := regularFile(c); err == nil {
+			return c, nil
+		} else if firstErr == nil {
 			firstErr = err
 		}
 	}
-	return nil, firstErr
+	if firstErr == nil {
+		firstErr = os.ErrNotExist
+	}
+	return "", firstErr
+}
+
+func regularFile(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 func trimmedSecret(path, baseDir string) ([]byte, error) {

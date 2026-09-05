@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -41,7 +44,7 @@ func ValidateWithBaseDir(st *model.State, baseDir string) error {
 	}
 	var vs []domainerr.FieldViolation
 	validateDocument(st, &vs)
-	validateListeners(&st.Spec.Listeners, &vs)
+	validateListeners(&st.Spec.Listeners, baseDir, &vs)
 	validateAuth(&st.Spec.Auth, baseDir, &vs)
 	validateEngine(&st.Spec.Engine, &vs)
 	validateAgent(&st.Spec.Agent, &vs)
@@ -50,7 +53,15 @@ func ValidateWithBaseDir(st *model.State, baseDir string) error {
 	mapNames := validateMaps(st.Spec.Maps, &vs)
 	validateCommunities(st.Spec.Communities, st.Spec.Agent.Versions, mapNames, baseDir, &vs)
 	validateUsers(st.Spec.Users, mapNames, baseDir, &vs)
-	if st.Spec.Listeners.Agent.Enabled && len(st.Spec.Communities) == 0 && len(st.Spec.Users) == 0 {
+	agentPlane := agentPlaneWillBind(&st.Spec.Listeners)
+	if !agentPlane {
+		vs = append(vs, domainerr.FieldViolation{
+			Path:    "spec",
+			Code:    violationRequired,
+			Message: "at least one agent-plane listener is required",
+		})
+	}
+	if agentPlane && len(st.Spec.Communities) == 0 && len(st.Spec.Users) == 0 {
 		vs = append(vs, domainerr.FieldViolation{
 			Path:    "spec",
 			Code:    violationRequired,
@@ -122,23 +133,11 @@ func validateDocument(st *model.State, vs *[]domainerr.FieldViolation) {
 	}
 }
 
-func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
+func validateListeners(l *model.ListenersSpec, baseDir string, vs *[]domainerr.FieldViolation) {
 	validateUDPAddr("spec.listeners.agent.address", l.Agent.Address, vs)
 	validateUDPAddr("spec.listeners.traps.address", l.Traps.Address, vs)
-	if l.DTLS.Enabled {
-		*vs = append(*vs, domainerr.FieldViolation{
-			Path:    "spec.listeners.dtls.enabled",
-			Code:    violationTLSUnsupported,
-			Message: "dtls.enabled must be false in 1.0",
-		})
-	}
-	if l.TCP.Enabled {
-		*vs = append(*vs, domainerr.FieldViolation{
-			Path:    "spec.listeners.tcp.enabled",
-			Code:    violationTLSUnsupported,
-			Message: "tcp.enabled must be false in 1.0",
-		})
-	}
+	validateTCPListeners(l, vs)
+	validateDTLSListeners(l, baseDir, vs)
 	if strings.TrimSpace(l.Management.Address) != "" {
 		validateTCPAddr("spec.listeners.management.address", l.Management.Address, vs)
 	}
@@ -156,6 +155,171 @@ func validateListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
 			Message: "mcpPath must start with /",
 		})
 	}
+}
+
+func tcpAgentOn(l *model.ListenersSpec) bool {
+	return l.TCP.Enabled && (l.Agent.Enabled || strings.TrimSpace(l.TCP.Address) != "")
+}
+
+func tcpTrapsOn(l *model.ListenersSpec) bool {
+	return l.TCP.Enabled && (l.Traps.Enabled || strings.TrimSpace(l.TCP.TrapsAddress) != "")
+}
+
+func dtlsAgentOn(l *model.ListenersSpec) bool {
+	return l.DTLS.Enabled && strings.TrimSpace(l.DTLS.Address) != ""
+}
+
+func agentPlaneWillBind(l *model.ListenersSpec) bool {
+	return l.Agent.Enabled || tcpAgentOn(l) || dtlsAgentOn(l)
+}
+
+func validateTCPListeners(l *model.ListenersSpec, vs *[]domainerr.FieldViolation) {
+	if !l.TCP.Enabled {
+		return
+	}
+	if addr := strings.TrimSpace(l.TCP.Address); addr != "" {
+		validateTCPAddr("spec.listeners.tcp.address", addr, vs)
+	}
+	if addr := strings.TrimSpace(l.TCP.TrapsAddress); addr != "" {
+		validateTCPAddr("spec.listeners.tcp.trapsAddress", addr, vs)
+	}
+	if !tcpAgentOn(l) && !tcpTrapsOn(l) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.tcp.enabled",
+			Code:    violationRequired,
+			Message: "tcp.enabled requires an agent or trap TCP address",
+		})
+	}
+}
+
+func validateDTLSListeners(l *model.ListenersSpec, baseDir string, vs *[]domainerr.FieldViolation) {
+	if !l.DTLS.Enabled {
+		return
+	}
+	if strings.TrimSpace(l.DTLS.CertFile) == "" {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.certFile",
+			Code:    violationRequired,
+			Message: "certFile is required (file ref, never inline)",
+		})
+	}
+	if strings.TrimSpace(l.DTLS.KeyFile) == "" {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.keyFile",
+			Code:    violationRequired,
+			Message: "keyFile is required (file ref, never inline)",
+		})
+	}
+	if strings.TrimSpace(l.DTLS.CertFile) != "" && strings.TrimSpace(l.DTLS.KeyFile) != "" {
+		validateTLSKeyPair(l.DTLS.CertFile, l.DTLS.KeyFile, baseDir, vs)
+	}
+	if strings.TrimSpace(l.DTLS.ClientCAFile) != "" {
+		validateClientCAFile(l.DTLS.ClientCAFile, baseDir, vs)
+	}
+
+	agentAddr := strings.TrimSpace(l.DTLS.Address)
+	trapsAddr := strings.TrimSpace(l.DTLS.TrapsAddress)
+	if agentAddr != "" {
+		validateUDPAddr("spec.listeners.dtls.address", agentAddr, vs)
+	}
+	if trapsAddr != "" {
+		validateUDPAddr("spec.listeners.dtls.trapsAddress", trapsAddr, vs)
+	}
+	if agentAddr == "" && trapsAddr == "" {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.enabled",
+			Code:    violationRequired,
+			Message: "dtls.enabled requires an agent or trap DTLS address",
+		})
+	}
+	if l.Agent.Enabled && agentAddr != "" && udpAddrsCollide(l.Agent.Address, agentAddr) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.address",
+			Code:    violationInvalidValue,
+			Message: "DTLS and SNMP UDP cannot share a socket",
+		})
+	}
+	if l.Traps.Enabled && trapsAddr != "" && udpAddrsCollide(l.Traps.Address, trapsAddr) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.trapsAddress",
+			Code:    violationInvalidValue,
+			Message: "DTLS and SNMP UDP cannot share a socket",
+		})
+	}
+}
+
+func validateTLSKeyPair(certFile, keyFile, baseDir string, vs *[]domainerr.FieldViolation) {
+	certPath, err := resolveFileRef(certFile, baseDir)
+	if err != nil {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.certFile",
+			Code:    violationInvalidValue,
+			Message: "cert file not found",
+		})
+		return
+	}
+	keyPath, err := resolveFileRef(keyFile, baseDir)
+	if err != nil {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.keyFile",
+			Code:    violationInvalidValue,
+			Message: "key file not found",
+		})
+		return
+	}
+	if _, err := tls.LoadX509KeyPair(certPath, keyPath); err != nil {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.certFile",
+			Code:    violationInvalidValue,
+			Message: "certFile and keyFile are not a valid X.509 key pair",
+		})
+	}
+}
+
+func validateClientCAFile(path, baseDir string, vs *[]domainerr.FieldViolation) {
+	resolved, err := resolveFileRef(path, baseDir)
+	if err != nil {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.clientCAFile",
+			Code:    violationInvalidValue,
+			Message: "clientCAFile not found",
+		})
+		return
+	}
+	b, err := os.ReadFile(resolved)
+	if err != nil {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.clientCAFile",
+			Code:    violationInvalidValue,
+			Message: "clientCAFile not found",
+		})
+		return
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(b) {
+		*vs = append(*vs, domainerr.FieldViolation{
+			Path:    "spec.listeners.dtls.clientCAFile",
+			Code:    violationInvalidValue,
+			Message: "clientCAFile must contain at least one PEM certificate",
+		})
+	}
+}
+
+func udpAddrsCollide(a, b string) bool {
+	ca, okA := canonicalUDPAddr(a)
+	cb, okB := canonicalUDPAddr(b)
+	return okA && okB && ca == cb
+}
+
+func canonicalUDPAddr(addr string) (string, bool) {
+	ua, err := net.ResolveUDPAddr("udp", strings.TrimSpace(addr))
+	if err != nil {
+		return "", false
+	}
+	if ua.IP == nil || ua.IP.IsUnspecified() {
+		return fmt.Sprintf("*:%d", ua.Port), true
+	}
+	return ua.String(), true
 }
 
 func validateAuth(a *model.AuthSpec, baseDir string, vs *[]domainerr.FieldViolation) {

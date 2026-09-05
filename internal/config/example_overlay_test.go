@@ -78,7 +78,7 @@ func TestLabOverlayExample(t *testing.T) {
 		t.Fatal("agent and trap listeners must stay enabled")
 	}
 	if st.Spec.Listeners.DTLS.Enabled || st.Spec.Listeners.TCP.Enabled {
-		t.Fatal("dtls/tcp enabled must stay false in 1.0")
+		t.Fatal("lab overlay must keep dtls/tcp disabled")
 	}
 	if !st.Spec.UI.Enabled {
 		t.Fatal("ui.enabled must stay true (operator SPA)")

@@ -9,11 +9,18 @@ All notable user-visible and operator-visible changes are recorded here.
 - v1.1 residual increment design (`IMPLEMENTATION-DESIGN-v1.1.md`),
   ADR 0016 (RFC 3430 TCP BER-length framing; DTLS 1.2 record layer on
   10161/10162, not TLSTM/TSM), and the v1.1 task board (FND-110).
-  `enabled: true` still rejects until CFG-110.
+- TCP/DTLS listener fields are schema-legal: `tcp.enabled` /
+  `dtls.enabled` validate under per-listener address rules and
+  file-ref certs. Listeners do not bind until later 1.1 PRs
+  (CFG-110).
 
 ### Changed
 
-- None.
+- `tls_unsupported` is no longer emitted on `tcp`/`dtls` enable.
+  Missing DTLS certs are `validation_failed`/`required`. Identities
+  are required when any agent-plane listener will bind. AGENTS §11
+  and known-limitations match 1.1 (TLSTM/TSM residual; TLS-over-TCP
+  residual). Catalog `tls_unsupported` is retained for TLS-over-TCP.
 
 ### Fixed
 

@@ -68,7 +68,10 @@ Changing an invariant requires an ADR first.
 9. **SET is an overlay.** Not an apply verb. REST `oids:set` is the
    same overlay. Reset restores bootstrap values.
 10. **No SMIv2 compiler in 1.0.** Explicit YAML maps.
-11. **DTLS/TCP SNMP is v1.1.** `enabled: true` rejects.
+11. **DTLS/TCP SNMP is schema-legal in 1.1.** `enabled: true`
+    validates under per-listener TCP constraints and DTLS file-ref
+    certs. TLSTM/TSM is not implemented. Do not add
+    `spec.listeners.tls`.
 12. **No Prometheus client.** Hand-rolled OpenMetrics.
 13. **Docs ship with the change.** CI failures are hardened.
 14. **Identity for views is community string or v3 user**, not client
