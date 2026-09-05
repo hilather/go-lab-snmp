@@ -37,3 +37,9 @@ snmptrap -v2c -c public 127.0.0.1:1162 '' 1.3.6.1.6.3.1.1.5.1
 `--management-listen` defaults **off**. The scratch image CMD binds
 `:8088` so HEALTHCHECK and authenticated `/v1` work. Appliance smoke
 is `:1161`/`:1162` with `cap_drop: ALL` (`make test-container`).
+With `--management-listen=:8088` and `spec.ui.enabled: true`, `GET /`
+serves the operator SPA.
+
+```
+make web-install web-test web-build
+```

@@ -298,6 +298,17 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			Mounts: map[string]http.Handler{
 				mcpPath: mcpSrv.Handler(),
 			},
+			UI: web.NewHandler(nil),
+			UIEnabled: func() bool {
+				if !web.UIEnabled {
+					return false
+				}
+				live := svc.Active()
+				if live == nil || live.Canonical == nil {
+					return false
+				}
+				return live.Canonical.Spec.UI.Enabled
+			},
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)

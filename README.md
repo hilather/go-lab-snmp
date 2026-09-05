@@ -21,7 +21,8 @@ This is laboratory software. It is not a production SNMP agent.
 ## Status
 
 Scratch image UID `65532:65532`. `make test-container` smokes
-`:1161`/`:1162` with `cap_drop: ALL`. Remaining waves start from
+`:1161`/`:1162` with `cap_drop: ALL`. Operator SPA (UI-001) Mira
+checklist is signed off for 1.0.0. Remaining waves start from
 `tasks/00-program-board.md`. Read `START-HERE.md`, then `AGENTS.md`.
 
 ## What 1.0 will do

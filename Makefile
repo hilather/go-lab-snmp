@@ -83,6 +83,22 @@ test-container:
 test-parity:
 	$(GO) test ./internal/capabilities ./internal/control/rest ./internal/control/mcp -count=1
 
-security-scan web-install web-test web-build web-embed:
+security-scan:
 	@echo 'make $@: not implemented' >&2
 	@false
+
+web-install:
+	npm --prefix web ci
+
+web-test:
+	npm --prefix web test
+
+web-build:
+	npm --prefix web run build
+	$(MAKE) web-embed
+
+web-embed:
+	@mkdir -p internal/web/dist
+	@rm -rf internal/web/dist/assets
+	@if [ -d web/dist ]; then cp -a web/dist/. internal/web/dist/; fi
+	@echo "copied web/dist -> internal/web/dist"

@@ -5,7 +5,14 @@
 ### Added
 
 - Integration-lab BOM (`examples/labsnmp.yaml`, labinfo id `labsnmp`, Jungle `labsnmp.json`): copy-paste overlay for mcp-integration-lab. Residual host ports 10161/10162/18161, env `LABSNMP_REST_PORT` (not `LABSNMP_MGMT_PORT`), `NET_BIND_SERVICE`, healthcheck, maps `public-if`/`private-if`, user `alice`. Integrator pin is out of band; this repo does not implement `vendor.go` (SWAP-001).
-- Scratch image UID `65532:65532` (`Dockerfile`, `golang:1.26-alpine`, `CGO_ENABLED=0`, no Node stage). Image CMD `serve --config=/etc/labsnmp/config.yaml --management-listen=:8088` with exec HEALTHCHECK `GET /v1/health/ready`. `examples/compose.smoke.yaml` and `make test-container` bind `:1161`/`:1162` with `cap_drop: ALL`. `rest.Config.UI` is wired to the FND placeholder embed with `UIEnabled=false` (`GET /` is 404 `application/problem+json`). Serve `--shutdown-timeout` defaults to 10s; `--pid-file` writes after binds (write failure shuts down and exits 1). `make test-container` drives `examples/compose.smoke.yaml` with `docker compose up --build`. Health stays unauthenticated; other `/v1` routes require bearer (SEC-001) (DEP-001).
+- Operator SPA (Vite + React 19) over REST `/v1`: login, overview, maps
+  (tree + `oids:set` overlay), communities/users (secrets never shown),
+  trap inbox (no send-trap), queries, plan/apply, gated reset, audit,
+  features, status. Cookie `labsnmp_session` + CSRF `X-LabSNMP-CSRF` in
+  process memory; Vitest `assertNoTokenStorage`. `ui.enabled: false` is
+  404 `application/problem+json`. Committed `internal/web/dist` is a real
+  Vite tree. Mira checklist in docs/12 signed off for 1.0.0 (UI-001).
+- Scratch image UID `65532:65532` (`Dockerfile`, `golang:1.26-alpine`, `CGO_ENABLED=0`, no Node stage). Image CMD `serve --config=/etc/labsnmp/config.yaml --management-listen=:8088` with exec HEALTHCHECK `GET /v1/health/ready`. `examples/compose.smoke.yaml` and `make test-container` bind `:1161`/`:1162` with `cap_drop: ALL`. Serve `--shutdown-timeout` defaults to 10s; `--pid-file` writes after binds (write failure shuts down and exits 1). Health stays unauthenticated; other `/v1` routes require bearer (SEC-001) (DEP-001).
 - Streamable HTTP MCP adapter (`internal/control/mcp`) over `app.Service`: `snmp_*` tools, `labsnmp://` resources, protocol `2026-07-28`, `POST /mcp` with `Stateless: true`, SDK v1.7.0 only in the adapter, `labsnmp mcp-stdio --config --token-file`, and `make test-parity`. MCP does not HTTP-call REST. `allowLegacyClients` defaults false; lab overlay true (MCP-001).
 - Management bearer from `spec.auth.tokens[].secretFile` (≥32 bytes, SHA-256 digest compare), cookie `labsnmp_session` (HttpOnly SameSite=Lax Path=/), CSRF `X-LabSNMP-CSRF` in process memory, exact-match Origins, and an in-memory audit ring. Every `/v1` route except health (and metrics if `publicPath`) requires bearer or session. Users list keeps `secretFile` paths and never file contents (SEC-001).
 - slog JSON logs and hand-rolled OpenMetrics (`internal/observability`): series `labsnmp_pdus_total`, `labsnmp_traps_total`, `labsnmp_store_messages`, `labsnmp_store_bytes`, `labsnmp_apply_total`, `labsnmp_http_requests_total`, `labsnmp_build_info`, `labsnmp_auth_fail_total`. Ready = snapshot installed AND every enabled data-plane listener bound AND (management bound or `--management-listen=off`). `GET /v1/metrics` when `metrics.publicPath` is true. `labsnmp healthcheck --url=`. Generated `api/metrics/v1alpha1.json`. No Prometheus client; secrets and client IPs never appear as labels (OBS-001).
@@ -23,6 +30,12 @@
 
 ### Changed
 
+- Operator SPA Mira checklist signed off for 1.0.0 from UI-001 tests
+  (pages, no localStorage tokens, CSRF, `ui.enabled: false` 404, no
+  send-trap). Empty-state copy and skip-link focus on list pages. No
+  new capability IDs (UI-001).
+- `GET /v1/queries` items are camelCase (`type`, `identity`, `decision`,
+  `errorStatus`), matching docs/06 and the operator SPA.
 - Apply/reset reloads bearer identity, `allowedOrigins`, and `metrics.publicPath` from the live snapshot. Unreadable or empty `spec.auth` drops the previous verifier instead of keeping old tokens. Token files resolve CWD then the bootstrap directory. OpenAPI documents cookie `labsnmp_session` and header `X-LabSNMP-CSRF`.
 - `GET /v1/state:export?format=json` writes the canonical document (same shape as YAML). `POST /v1/traps:wait` is capped by `spec.traps.maxWait`, not the 30s management request timeout.
 - Community wire string is trimmed `communityFile` contents (K4). Inline `community:` / `secretFile` on communities reject.

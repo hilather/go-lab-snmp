@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Control Plane
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 REST and MCP are adapters over one `internal/app.Service`. They must
 not call each other. Implementation order CFG → APP → API → SEC → MCP.
@@ -17,7 +17,7 @@ REST_ONLY_PROTOCOL: health live/ready (`health.live`, `health.ready`),
 session (`session.create`/`get`/`delete`), metrics scrape (`metrics.get`),
 SPA. Health live/ready are unauthenticated. Session is cookie
 `labsnmp_session` + CSRF `X-LabSNMP-CSRF` (SEC-001). Metrics wait
-for OBS-001 (`publicPath` skips auth). SPA waits for UI-001.
+for OBS-001 (`publicPath` skips auth).
 
 PARITY_REQUIRED:
 
