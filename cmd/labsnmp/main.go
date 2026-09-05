@@ -29,7 +29,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return validateCmd(args[2:], stdout, stderr)
 	case "canonicalize":
 		return canonicalizeCmd(args[2:], stdout, stderr)
-	case "serve", "healthcheck", "mcp-stdio":
+	case "serve":
+		return serveCmd(args[2:], stdout, stderr)
+	case "healthcheck", "mcp-stdio":
 		_, _ = fmt.Fprintf(stderr, "labsnmp %s: not implemented\n", args[1])
 		return 1
 	default:

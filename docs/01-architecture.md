@@ -105,3 +105,4 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 - Client IP `netip.Addr.Unmap()` before CIDR admission
 - UID 65532 vs :161/:162 needs `CAP_NET_BIND_SERVICE` on integrator compose
 - Local tests bind `:1161` / `:1162` with cap_drop ALL
+- `labsnmp serve --config --snmp-listen` binds the agent. `--management-listen` defaults **off**; the data plane still answers. Until TRAP-001, serve does not open UDP 162 even if YAML `traps.enabled` is true.

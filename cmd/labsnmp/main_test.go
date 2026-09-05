@@ -82,7 +82,7 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestUnimplementedCommands(t *testing.T) {
-	for _, cmd := range []string{"serve", "healthcheck", "mcp-stdio"} {
+	for _, cmd := range []string{"healthcheck", "mcp-stdio"} {
 		var stdout, stderr bytes.Buffer
 		code := run([]string{"labsnmp", cmd}, &stdout, &stderr)
 		if code != 1 {
@@ -91,6 +91,14 @@ func TestUnimplementedCommands(t *testing.T) {
 		if !strings.Contains(stderr.String(), "not implemented") {
 			t.Fatalf("%s stderr %q", cmd, stderr.String())
 		}
+	}
+}
+
+func TestServeRequiresConfig(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labsnmp", "serve"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
 	}
 }
 

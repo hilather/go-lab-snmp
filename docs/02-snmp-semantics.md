@@ -72,14 +72,14 @@ Lexicographic successor of the requested OID in the compiled tree, respecting th
 
 ### Set
 
-1. Access must be `read-write`.
-2. Each leaf `access: write`.
-3. Type and range match.
-4. Apply into the **SET overlay** (copy-on-write on the compiled map).
-5. `storeGeneration` increments. GET after SET sees overlay.
-6. Reset drops overlay.
+RFC 3416 two-phase / all-or-nothing:
 
-Errors: `notWritable`, `wrongType`, `wrongLength`, `wrongValue`, `noAccess`, `genErr`.
+1. Identity `access` must be `read-write` (else `noAccess` / v1 `noSuchName`; error-index of the first varbind).
+2. Phase 1 — `CheckSet` **every** varbind against overlay+bootstrap: leaf `access: write`, type, range/size, not `valueFrom: uptime`. On the first failure return that error-status and **1-based error-index**. Overlay is **unchanged**.
+3. Phase 2 — only if every varbind passed: apply all overlay writes, then `storeGeneration++` **once**. GET after SET sees overlay.
+4. Reset drops overlay.
+
+Errors: `notWritable`, `wrongType`, `wrongLength`, `wrongValue`, `noAccess`, `genErr`, plus v1 `noSuchName` / `tooBig`.
 
 ### Trap sink
 
