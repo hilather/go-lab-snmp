@@ -44,6 +44,10 @@ All notable user-visible and operator-visible changes are recorded here.
   are required when any agent-plane listener will bind. AGENTS §11
   and known-limitations match 1.1 (TLSTM/TSM residual; TLS-over-TCP
   residual). Catalog `tls_unsupported` is retained for TLS-over-TCP.
+- D12, docs/08 threat table, labinfo `tls` note, and README match
+  v1.1: TCP/DTLS record layer is no longer deferred; TLSTM/TSM and
+  TLS-over-TCP remain residual. Integrator example Ref stays
+  `v1.0.0` until the GA tag.
 
 ### Fixed
 

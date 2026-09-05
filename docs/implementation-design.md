@@ -2,7 +2,8 @@
 
 > **Living contract.** ADRs, `AGENTS.md`, and numbered `docs/00`–`13`
 > win over this summary. Edit this root copy, not the design pack.
-> CLI listen flags are `--snmp-listen`, `--trap-listen`, and
+> CLI listen flags are `--snmp-listen`, `--trap-listen`,
+> `--dtls-listen`, `--dtls-trap-listen`, and
 > `--management-listen`. Packages are `internal/mibtree` and
 > `internal/snmpagent` (not `mib` / `snmpserver`). Control-plane
 > implementation order is CFG → APP → API → SEC → MCP; D8 is the
@@ -35,7 +36,7 @@ Closest siblings: LabNTP (first-party UDP responder), LabMail (receive-only stor
 
 - net-snmp / AgentX / gosnmp-as-engine
 - SMIv2 compiler
-- SNMP over TCP / DTLS
+- TLSTM/TSM and RFC 6353 TLS-over-TCP
 - Trap originator or forwarder
 - Manager that walks external agents
 - SHA-384/512, AES-192/256
@@ -56,7 +57,7 @@ Closest siblings: LabNTP (first-party UDP responder), LabMail (receive-only stor
 | D9 | Community/user → exactly one map |
 | D10 | SET overlay; reset drops it |
 | D11 | INFORM ack is WriteTo, not Dial |
-| D12 | TCP/DTLS enable rejected in 1.0 |
+| D12 | RFC 3430 TCP + DTLS 1.2 record layer; TLSTM/TSM residual |
 | D13 | Host residual 10161/10162; native 161/162 |
 | D14 | Local escape `:1161` / `:1162` |
 | D15 | labinfo id `labsnmp` from day one |
@@ -73,6 +74,13 @@ Closest siblings: LabNTP (first-party UDP responder), LabMail (receive-only stor
 | D26 | Cookie `labsnmp_session`; CSRF `X-LabSNMP-CSRF` |
 | D27 | Ready = enabled listeners bound + snapshot + (mgmt bound or off) |
 | D28 | Unauth traps dropped by default |
+
+D12: RFC 3430 TCP (BER-length framing on 161/tcp and 162/tcp) and a
+DTLS 1.2 record layer on IANA 10161/10162 are schema-legal and
+bind at serve when enabled. Inner PDU is community or USM.
+TLSTM/TSM is not implemented. RFC 6353 TLS-over-TCP remains
+residual: no `spec.listeners.tls`; catalog `tls_unsupported` is
+retained and is not emitted on `tcp`/`dtls` enable.
 
 D20: TimeTicks `valueFrom` is `uptime`, computed at read time from
 `uptimeEpoch` as `uint32((now.Sub(uptimeEpoch) / 10ms) % (1<<32))`.
@@ -98,7 +106,7 @@ web testdata examples docs tasks scripts
 labsnmp version
 labsnmp validate --config FILE
 labsnmp canonicalize --config FILE [--format yaml|json]
-labsnmp serve --config FILE [--snmp-listen ADDR|off] [--trap-listen ADDR|off] [--management-listen ADDR|off]
+labsnmp serve --config FILE [--snmp-listen ADDR|off] [--trap-listen ADDR|off] [--dtls-listen ADDR|off] [--dtls-trap-listen ADDR|off] [--management-listen ADDR|off]
 labsnmp healthcheck --url URL
 labsnmp mcp-stdio --config FILE --token-file FILE
 ```
