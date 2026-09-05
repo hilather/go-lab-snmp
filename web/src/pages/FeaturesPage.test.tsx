@@ -42,6 +42,9 @@ describe("FeaturesPage", () => {
     expect((await screen.findAllByText("live")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("reset-only").length).toBeGreaterThan(0);
     expect(FROZEN).toHaveLength(12);
+    for (const f of FROZEN) {
+      expect(screen.getByText(f.id)).toBeInTheDocument();
+    }
     expect(FROZEN.map((f) => f.id)).not.toContain("ui.enabled");
     expect(screen.queryByText("ui.enabled")).toBeNull();
     expect(

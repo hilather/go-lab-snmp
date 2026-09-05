@@ -387,7 +387,11 @@ func (s *Server) handleQueries(w http.ResponseWriter, r *http.Request, instance 
 		s.writeProblem(w, r, instance, asDomain(err))
 		return
 	}
-	s.writeJSON(w, http.StatusOK, map[string]any{"items": list.Items})
+	items := make([]queryJSON, 0, len(list.Items))
+	for _, q := range list.Items {
+		items = append(items, fromQuery(q))
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"items": items})
 	_ = r
 }
 

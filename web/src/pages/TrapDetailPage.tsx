@@ -112,12 +112,7 @@ export function TrapDetailPage() {
                   </td>
                   <td>{vb.type || "—"}</td>
                   <td>
-                    <code>
-                      {vb.oidValue ||
-                        vb.bytes ||
-                        (vb.integer !== undefined && vb.integer !== 0 ? String(vb.integer) : "") ||
-                        (vb.unsigned !== undefined ? String(vb.unsigned) : "—")}
-                    </code>
+                    <code>{formatVarBind(vb)}</code>
                   </td>
                 </tr>
               ))}
@@ -129,6 +124,22 @@ export function TrapDetailPage() {
       ) : null}
     </main>
   );
+}
+
+function formatVarBind(vb: { oidValue?: string; bytes?: string; integer?: number; unsigned?: number }): string {
+  if (vb.oidValue) {
+    return vb.oidValue;
+  }
+  if (vb.bytes) {
+    return vb.bytes;
+  }
+  if (vb.integer !== undefined) {
+    return String(vb.integer);
+  }
+  if (vb.unsigned !== undefined) {
+    return String(vb.unsigned);
+  }
+  return "—";
 }
 
 function hexDump(bytes: Uint8Array): string {

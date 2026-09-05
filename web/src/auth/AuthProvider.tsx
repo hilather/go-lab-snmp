@@ -65,7 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await deleteSession();
     } catch (err) {
       if (err instanceof APIError && err.problem.status === 403) {
-        return;
+        try {
+          await getSession();
+          await deleteSession();
+        } catch {
+          // CSRF missing or cookie already gone; still drop client session.
+        }
       }
     }
     clearMemoryCSRF();

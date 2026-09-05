@@ -442,6 +442,38 @@ func TestMapQueryContract(t *testing.T) {
 	}
 }
 
+func TestQueriesListCamelCase(t *testing.T) {
+	s, svc := newTestServer(t)
+	svc.Queries().Insert(store.Query{Type: "get", Identity: "public", Decision: "ok", ErrorStatus: 0})
+	resp := doJSON(t, s, http.MethodGet, "/v1/queries", "")
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("queries %d %s", resp.StatusCode, b)
+	}
+	m := decodeMap(t, resp)
+	items, _ := m["items"].([]any)
+	var row map[string]any
+	for _, it := range items {
+		r, _ := it.(map[string]any)
+		if r["identity"] == "public" && r["type"] == "get" {
+			row = r
+			break
+		}
+	}
+	if row == nil {
+		t.Fatalf("missing camelCase query row %v", m)
+	}
+	if row["decision"] != "ok" {
+		t.Fatalf("decision %v", row)
+	}
+	if _, ok := row["Type"]; ok {
+		t.Fatalf("PascalCase Type leaked: %v", row)
+	}
+	if _, ok := row["errorStatus"]; !ok {
+		t.Fatalf("missing errorStatus: %v", row)
+	}
+}
+
 func TestOIDSetContract(t *testing.T) {
 	s, _ := newTestServer(t)
 	resp := doJSON(t, s, http.MethodPost, "/v1/maps/public-if/oids:set", `{"oid":"1.3.6.1.2.1.2.2.1.8.1","value":2}`)
@@ -462,6 +494,12 @@ func TestOIDSetContract(t *testing.T) {
 	if gm["overlay"] != true {
 		t.Fatalf("get overlay %v", gm)
 	}
+	digit := doJSON(t, s, http.MethodPost, "/v1/maps/public-if/oids:set", `{"oid":"1.3.6.1.2.1.2.2.1.8.1","value":"3"}`)
+	if digit.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(digit.Body)
+		t.Fatalf("digit string set %d %s", digit.StatusCode, b)
+	}
+	_ = digit.Body.Close()
 	bad := doJSON(t, s, http.MethodPost, "/v1/maps/public-if/oids:set", `{"oid":"1.3.6.1.2.1.2.2.1.8.1","value":2,"extra":true}`)
 	if bad.StatusCode != http.StatusBadRequest {
 		t.Fatalf("extra field %d", bad.StatusCode)

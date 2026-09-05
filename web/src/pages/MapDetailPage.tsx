@@ -4,6 +4,7 @@ import { APIError, getMap, queryMap, setOID } from "../api/client";
 import type { MapSpec, OIDResult } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE } from "../auth/scopes";
+import { leafTypeForOID, overlayJSONValue } from "../ui/overlay";
 
 export function MapDetailPage() {
   const { name = "" } = useParams();
@@ -14,9 +15,27 @@ export function MapDetailPage() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [queryResult, setQueryResult] = useState<OIDResult[] | null>(null);
+  const [live, setLive] = useState<Record<string, OIDResult>>({});
 
   const reload = useCallback(async () => {
-    setMap(await getMap(name));
+    const spec = await getMap(name);
+    setMap(spec);
+    const oids = (spec.objects ?? []).map((o) => o.oid).filter(Boolean);
+    if (oids.length === 0) {
+      return;
+    }
+    try {
+      const res = await queryMap(name, "get", oids);
+      const next: Record<string, OIDResult> = {};
+      for (const b of res.bindings ?? []) {
+        if (b.oid) {
+          next[b.oid] = b;
+        }
+      }
+      setLive((prev) => ({ ...prev, ...next }));
+    } catch {
+      // GET /maps is bootstrap YAML; keep any overlay rows we already have.
+    }
   }, [name]);
 
   useEffect(() => {
@@ -47,15 +66,14 @@ export function MapDetailPage() {
       setError("OID is required.");
       return;
     }
-    let value: unknown = raw;
-    if (raw !== "" && /^-?\d+$/.test(raw)) {
-      value = Number(raw);
-    }
+    const leafType = leafTypeForOID(map?.objects, oid);
+    const value = overlayJSONValue(leafType, raw);
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const res = await setOID(name, oid, value);
+      setLive((prev) => ({ ...prev, [res.oid]: res }));
       setNotice(`Overlay write ${res.oid}${res.overlay ? " (overlay)" : ""}.`);
       await reload();
     } catch (err) {
@@ -107,7 +125,7 @@ export function MapDetailPage() {
       ) : null}
       {notice !== "" ? <p role="status">{notice}</p> : null}
       <table className="data">
-        <caption>Compiled instance leaves. Writable leaves accept overlay values.</caption>
+        <caption>Compiled instance leaves. Value prefers live GET (overlay flag) over bootstrap YAML.</caption>
         <thead>
           <tr>
             <th>OID</th>
@@ -131,7 +149,7 @@ export function MapDetailPage() {
                 <span className="chip">{o.access}</span>
               </td>
               <td>
-                <code>{o.valueFrom ? `valueFrom:${o.valueFrom}` : formatValue(o.value)}</code>
+                <code>{formatLeaf(o, live[o.oid])}</code>
               </td>
             </tr>
           ))}
@@ -211,4 +229,15 @@ function formatValue(v: unknown): string {
     return v;
   }
   return JSON.stringify(v);
+}
+
+function formatLeaf(o: { value?: unknown; valueFrom?: string }, got: OIDResult | undefined): string {
+  if (got) {
+    const mark = got.overlay ? " (overlay)" : "";
+    return `${formatValue(got.value)}${mark}`;
+  }
+  if (o.valueFrom) {
+    return `valueFrom:${o.valueFrom}`;
+  }
+  return formatValue(o.value);
 }

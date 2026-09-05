@@ -161,6 +161,13 @@ type varBindJSON struct {
 	OIDValue string `json:"oidValue,omitempty"`
 }
 
+type queryJSON struct {
+	Type        string `json:"type"`
+	Identity    string `json:"identity"`
+	Decision    string `json:"decision"`
+	ErrorStatus int32  `json:"errorStatus"`
+}
+
 type statsJSON struct {
 	Traps             trapStatsJSON `json:"traps"`
 	OverlayGeneration uint64        `json:"overlayGeneration"`
@@ -452,6 +459,8 @@ func asInt64(v any) (int64, error) {
 		return int64(n), nil
 	case int64:
 		return n, nil
+	case string:
+		return strconv.ParseInt(n, 10, 64)
 	default:
 		return 0, strconv.ErrSyntax
 	}
@@ -478,8 +487,19 @@ func asUint64(v any) (uint64, error) {
 		return uint64(n), nil
 	case uint64:
 		return n, nil
+	case string:
+		return strconv.ParseUint(n, 10, 64)
 	default:
 		return 0, strconv.ErrSyntax
+	}
+}
+
+func fromQuery(q store.Query) queryJSON {
+	return queryJSON{
+		Type:        q.Type,
+		Identity:    q.Identity,
+		Decision:    q.Decision,
+		ErrorStatus: q.ErrorStatus,
 	}
 }
 
