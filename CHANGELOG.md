@@ -18,6 +18,7 @@
 
 ### Changed
 
+- `GET /v1/state:export?format=json` writes the canonical document (same shape as YAML). `POST /v1/traps:wait` is capped by `spec.traps.maxWait`, not the 30s management request timeout.
 - Community wire string is trimmed `communityFile` contents (K4). Inline `community:` / `secretFile` on communities reject.
 - `valueFrom` is `uptime` (ADR 0011), not `processUptime`.
 - START-HERE.md working path includes `labsnmp validate --config testdata/config/valid/full.yaml`.

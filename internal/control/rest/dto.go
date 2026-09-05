@@ -9,7 +9,6 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
-	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
@@ -94,15 +93,6 @@ type planJSON struct {
 	StoreGeneration   uint64            `json:"storeGeneration,omitempty"`
 }
 
-type exportJSON struct {
-	Format            string          `json:"format"`
-	Revision          string          `json:"revision"`
-	BootstrapRevision string          `json:"bootstrapRevision"`
-	Drifted           bool            `json:"drifted"`
-	Body              json.RawMessage `json:"body"`
-	HumanDiff         string          `json:"humanDiff,omitempty"`
-}
-
 type oidWriteRequest struct {
 	OID   string          `json:"oid"`
 	Value json.RawMessage `json:"value"`
@@ -183,10 +173,12 @@ func fromVersion(info buildinfo.Info) versionResponse {
 	}
 }
 
-func fromCapabilities() capabilityViewResponse {
-	src := capabilities.DiscoveryList()
-	out := make([]capabilityInfo, 0, len(src))
-	for _, d := range src {
+func fromCapabilities(view *app.CapabilityView) capabilityViewResponse {
+	if view == nil {
+		return capabilityViewResponse{Capabilities: []capabilityInfo{}}
+	}
+	out := make([]capabilityInfo, 0, len(view.Capabilities))
+	for _, d := range view.Capabilities {
 		out = append(out, capabilityInfo{
 			Name: d.Name, Version: d.Version, Description: d.Description,
 			Mutating: d.Mutating, Idempotent: d.Idempotent,

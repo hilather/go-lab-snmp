@@ -274,14 +274,6 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
-	var cancel context.CancelFunc
-	if s.timeout > 0 && !s.isMountedPath(r) {
-		ctx, cancel = context.WithTimeout(ctx, s.timeout)
-		defer cancel()
-	}
-	r = r.WithContext(ctx)
-
 	defer func() {
 		if rec := recover(); rec != nil {
 			s.writeProblem(w, r, instance, domainerr.Internal("internal error"))
@@ -293,6 +285,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
+	// traps.wait is capped by spec.traps.maxWait (default 60s), not the
+	// generic management request timeout.
+	if s.timeout > 0 && !(pathOK && methodOK && rt.cap.ID == capabilities.TrapsWait) {
+		ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
+		defer cancel()
+		r = r.WithContext(ctx)
+	}
 	if pathOK {
 		if !methodOK {
 			w.Header().Set(headerAllow, allowedMethods(s.routes, r.URL.Path))
@@ -326,14 +325,6 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func isHealthCap(cap capabilities.Capability) bool {
 	return cap.ID == capabilities.HealthLive || cap.ID == capabilities.HealthReady
-}
-
-func (s *Server) isMountedPath(r *http.Request) bool {
-	if s == nil || s.mounts == nil || r == nil {
-		return false
-	}
-	_, pattern := s.mounts.Handler(r)
-	return pattern != ""
 }
 
 func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance string) bool {

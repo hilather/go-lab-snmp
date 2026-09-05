@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
+	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
@@ -257,6 +258,22 @@ func (s *App) Version(ctx context.Context, actor Actor) (*buildinfo.Info, error)
 	_ = actor
 	info := buildinfo.Current()
 	return &info, nil
+}
+
+func (s *App) Capabilities(ctx context.Context, actor Actor) (*CapabilityView, error) {
+	if err := s.requireCtx(ctx); err != nil {
+		return nil, err
+	}
+	_ = actor
+	src := capabilities.DiscoveryList()
+	out := make([]CapabilityInfo, 0, len(src))
+	for _, d := range src {
+		out = append(out, CapabilityInfo{
+			Name: d.Name, Version: d.Version, Description: d.Description,
+			Mutating: d.Mutating, Idempotent: d.Idempotent,
+		})
+	}
+	return &CapabilityView{Capabilities: out}, nil
 }
 
 func (s *App) Features(ctx context.Context, actor Actor) (*FeatureList, error) {

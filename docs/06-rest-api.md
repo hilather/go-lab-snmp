@@ -20,8 +20,10 @@ simulates the named map without sending a datagram.
 user + oid against the compiled tree without sending a wire packet
 (`community` **or** `user`, and `oid`).
 
-`GET /v1/state:export` defaults to canonical YAML
-(`Content-Type: application/yaml`). `?format=json` returns JSON.
+`GET /v1/state:export` defaults to the canonical document as YAML
+(`Content-Type: application/yaml`). `?format=json` writes the same
+document as `application/json`. Revision is `X-LabSNMP-Revision` for
+both; there is no JSON envelope.
 
 `POST /v1/traps:wait` waits for an existing or later matching trap.
 `wait_timeout` is 504. Wipe during wait is `store_wiped`.

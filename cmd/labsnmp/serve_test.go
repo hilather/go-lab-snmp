@@ -44,8 +44,9 @@ func TestServeAnswersWithManagementOff(t *testing.T) {
 		}
 	}()
 	var listen, trapListen string
+	var mgmtNotBound bool
 	deadline := time.After(5 * time.Second)
-	for listen == "" || trapListen == "" {
+	for listen == "" || trapListen == "" || !mgmtNotBound {
 		select {
 		case line := <-lines:
 			if strings.HasPrefix(line, "labsnmp snmp listen=") {
@@ -54,8 +55,14 @@ func TestServeAnswersWithManagementOff(t *testing.T) {
 			if strings.HasPrefix(line, "labsnmp trap listen=") {
 				trapListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp trap listen="))
 			}
+			if strings.Contains(line, "management listen=") {
+				t.Fatalf("management must stay unbound: %q", line)
+			}
+			if strings.Contains(line, "management: not bound") {
+				mgmtNotBound = true
+			}
 		case <-deadline:
-			t.Fatal("missing snmp/trap listen line")
+			t.Fatal("missing snmp/trap listen or management not-bound line")
 		}
 	}
 	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})

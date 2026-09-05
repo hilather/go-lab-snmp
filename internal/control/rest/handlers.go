@@ -2,14 +2,12 @@ package rest
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/app"
-	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/store"
@@ -27,9 +25,9 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance strin
 	case capabilities.HealthReady:
 		s.handleHealthReady(w, r, ctx)
 	case capabilities.VersionGet:
-		s.writeJSON(w, http.StatusOK, fromVersion(buildinfo.Current()))
+		s.handleVersion(w, r, instance, ctx, actor)
 	case capabilities.CapabilitiesGet:
-		s.writeJSON(w, http.StatusOK, fromCapabilities())
+		s.handleCapabilities(w, r, instance, ctx, actor)
 	case capabilities.StatusGet:
 		s.handleStatus(w, r, instance, ctx, actor)
 	case capabilities.SchemaGet:
@@ -89,6 +87,29 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance strin
 	default:
 		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
 	}
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	info, err := s.svc.Version(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	if info == nil {
+		s.writeProblem(w, r, instance, domainerr.Internal("version unavailable"))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromVersion(*info))
+}
+
+func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {
+	view, err := s.svc.Capabilities(ctx, actor)
+	if err != nil {
+		s.writeProblem(w, r, instance, asDomain(err))
+		return
+	}
+	s.writeJSON(w, http.StatusOK, fromCapabilities(view))
+	_ = r
 }
 
 func (s *Server) handleHealthLive(w http.ResponseWriter, r *http.Request) {
@@ -250,14 +271,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request, instance s
 		s.writeBytes(w, http.StatusOK, "application/yaml", exp.Body)
 		return
 	}
-	s.writeJSON(w, http.StatusOK, exportJSON{
-		Format:            string(exp.Format),
-		Revision:          string(exp.Revision),
-		BootstrapRevision: string(exp.BootstrapRevision),
-		Drifted:           exp.Drifted,
-		Body:              json.RawMessage(exp.Body),
-		HumanDiff:         exp.HumanDiff,
-	})
+	s.writeBytes(w, http.StatusOK, "application/json; charset=utf-8", exp.Body)
 }
 
 func (s *Server) handleReset(w http.ResponseWriter, r *http.Request, instance string, ctx context.Context, actor app.Actor) {

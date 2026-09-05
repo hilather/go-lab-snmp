@@ -128,6 +128,20 @@ type DiffEntry struct {
 	After  json.RawMessage `json:"after,omitempty"`
 }
 
+// CapabilityView lists frozen capability names for discovery.
+type CapabilityView struct {
+	Capabilities []CapabilityInfo
+}
+
+// CapabilityInfo is one registry discovery row (tool name, or health.* id).
+type CapabilityInfo struct {
+	Name        string
+	Version     string
+	Description string
+	Mutating    bool
+	Idempotent  bool
+}
+
 // FeatureApplyLive and FeatureApplyResetOnly are the only apply values.
 const (
 	FeatureApplyLive      = capabilities.FeatureApplyLive

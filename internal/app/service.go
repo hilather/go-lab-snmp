@@ -12,6 +12,7 @@ import (
 // methods rather than implementing mutation or query logic.
 type Service interface {
 	Version(ctx context.Context, actor Actor) (*buildinfo.Info, error)
+	Capabilities(ctx context.Context, actor Actor) (*CapabilityView, error)
 	Features(ctx context.Context, actor Actor) (*FeatureList, error)
 	Status(ctx context.Context, actor Actor) (*Status, error)
 	ConfigSchema(ctx context.Context, actor Actor) ([]byte, error)

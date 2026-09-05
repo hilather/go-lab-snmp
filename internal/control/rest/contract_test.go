@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,6 +160,39 @@ func TestTrapsWaitContract(t *testing.T) {
 	}
 }
 
+func TestTrapsWaitSkipsGenericRequestTimeout(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{Service: svc, RatePerSec: -1, RequestTimeout: 40 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan *http.Response, 1)
+	go func() {
+		done <- doJSON(t, s, http.MethodPost, "/v1/traps:wait", `{"timeout":"500ms"}`)
+	}()
+	time.Sleep(80 * time.Millisecond)
+	id, err := svc.Traps().Insert(store.TrapRecord{
+		Version:         "v2c",
+		PDUType:         "trapv2",
+		Community:       "public",
+		NotificationOID: "1.3.6.1.6.3.1.1.5.1",
+		ReceivedAt:      time.Now().UTC(),
+		Raw:             []byte{0x30, 0x00},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := <-done
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("wait must outlive request timeout, got %d %s", resp.StatusCode, b)
+	}
+	m := decodeMap(t, resp)
+	if m["id"] != id {
+		t.Fatalf("wait id %v want %s", m["id"], id)
+	}
+}
+
 func TestStateExportYAMLContract(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/state:export", nil)
@@ -177,6 +211,26 @@ func TestStateExportYAMLContract(t *testing.T) {
 	}
 	if !strings.Contains(body, "kind: LabSNMP") {
 		t.Fatalf("kind %s", body)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/state:export?format=json", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("export json %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "json") || strings.Contains(ct, "problem+json") {
+		t.Fatalf("json content-type %s", ct)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc["apiVersion"] != "labsnmp.dev/v1alpha1" || doc["kind"] != "LabSNMP" {
+		t.Fatalf("json envelope leaked: %v", doc)
+	}
+	if _, ok := doc["body"]; ok {
+		t.Fatalf("json export must be the canonical document, not an envelope: %v", doc)
 	}
 }
 
