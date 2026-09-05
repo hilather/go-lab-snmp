@@ -19,6 +19,9 @@ All notable user-visible and operator-visible changes are recorded here.
   `agent-dtls` / `traps-dtls` when enabled (address `off` when that
   plane is disabled). Gauge `labsnmp_listeners_bound`. Schema-legal,
   not listening until later 1.1 PRs (APP-110).
+- Operator SPA Status and Overview show Agent TCP / Agent DTLS
+  dt/dd when `status.listeners` includes `agent-tcp` / `agent-dtls`.
+  Features page still twelve ids. No new capability IDs (UI-110).
 
 ### Changed
 

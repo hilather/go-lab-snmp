@@ -47,6 +47,8 @@ export function StatusPage() {
 
   const agent = status.listeners?.find((l) => l.name === "agent" || l.name === "snmp");
   const traps = status.listeners?.find((l) => l.name === "traps" || l.name === "trap");
+  const tcp = status.listeners?.find((l) => l.name === "agent-tcp");
+  const dtls = status.listeners?.find((l) => l.name === "agent-dtls");
 
   return (
     <main className="page">
@@ -71,6 +73,22 @@ export function StatusPage() {
             {traps ? <code>{traps.address}</code> : "—"}
           </dd>
         </div>
+        {tcp ? (
+          <div>
+            <dt>Agent TCP</dt>
+            <dd>
+              <code>{tcp.address}</code>
+            </dd>
+          </div>
+        ) : null}
+        {dtls ? (
+          <div>
+            <dt>Agent DTLS</dt>
+            <dd>
+              <code>{dtls.address}</code>
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>Drifted</dt>
           <dd>

@@ -45,8 +45,10 @@ describe("FeaturesPage", () => {
     for (const f of FROZEN) {
       expect(screen.getByText(f.id)).toBeInTheDocument();
     }
-    expect(FROZEN.map((f) => f.id)).not.toContain("ui.enabled");
-    expect(screen.queryByText("ui.enabled")).toBeNull();
+    for (const id of ["ui.enabled", "dtls", "tcp"]) {
+      expect(FROZEN.map((f) => f.id)).not.toContain(id);
+      expect(screen.queryByText(id)).toBeNull();
+    }
     expect(
       screen.getByText(/UI enablement is bootstrap YAML; reread with Reset. Not a features.list id./),
     ).toBeInTheDocument();

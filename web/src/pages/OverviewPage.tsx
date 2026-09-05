@@ -47,6 +47,9 @@ export function OverviewPage() {
     );
   }
 
+  const tcp = status.listeners?.find((l) => l.name === "agent-tcp");
+  const dtls = status.listeners?.find((l) => l.name === "agent-dtls");
+
   return (
     <main className="page">
       <h1>Overview</h1>
@@ -70,6 +73,22 @@ export function OverviewPage() {
             <code>{status.hostTime || "—"}</code>
           </dd>
         </div>
+        {tcp ? (
+          <div>
+            <dt>Agent TCP</dt>
+            <dd>
+              <code>{tcp.address}</code>
+            </dd>
+          </div>
+        ) : null}
+        {dtls ? (
+          <div>
+            <dt>Agent DTLS</dt>
+            <dd>
+              <code>{dtls.address}</code>
+            </dd>
+          </div>
+        ) : null}
       </dl>
       <h2>Listeners</h2>
       {(status.listeners ?? []).length === 0 ? (
