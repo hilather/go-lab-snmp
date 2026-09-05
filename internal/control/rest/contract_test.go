@@ -341,7 +341,8 @@ func TestPublicMetricsSkipsAuth(t *testing.T) {
 	if w.Code == http.StatusUnauthorized {
 		t.Fatal("publicPath metrics must not 401")
 	}
-	s2, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
+	priv := bootTestApp(t)
+	s2, err := New(Config{Service: priv, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,8 +391,8 @@ func TestPublicMetricsFollowsApply(t *testing.T) {
 	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
 	w = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("apply must copy publicPath false, got %d", w.Code)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("unrelated apply must keep live publicPath")
 	}
 }
 
