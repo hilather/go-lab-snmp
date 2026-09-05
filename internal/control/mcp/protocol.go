@@ -22,10 +22,10 @@ func validateProtocolVersion(r *http.Request) error {
 	return nil
 }
 
-func pinProtocolMiddleware(next sdk.MethodHandler) sdk.MethodHandler {
+func (s *Server) pinProtocolMiddleware(next sdk.MethodHandler) sdk.MethodHandler {
 	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
-		if sr, ok := req.(interface{ ProtocolVersion() string }); ok {
-			if v := sr.ProtocolVersion(); v != "" && v != ProtocolVersion {
+		if !s.allowLegacy() {
+			if v := requestProtocolVersion(req); v != "" && v != ProtocolVersion {
 				return nil, rpcError(domainerr.ValidationFailed("unsupported MCP protocol version "+v+"; only "+ProtocolVersion+" is supported",
 					domainerr.FieldViolation{Path: "protocolVersion", Code: "invalid_value", Message: "only " + ProtocolVersion + " is supported"}))
 			}
@@ -39,4 +39,18 @@ func pinProtocolMiddleware(next sdk.MethodHandler) sdk.MethodHandler {
 		}
 		return res, nil
 	}
+}
+
+func requestProtocolVersion(req sdk.Request) string {
+	if sr, ok := req.(interface{ ProtocolVersion() string }); ok {
+		if v := sr.ProtocolVersion(); v != "" {
+			return v
+		}
+	}
+	if gp, ok := req.(interface{ GetParams() sdk.Params }); ok {
+		if p, ok := gp.GetParams().(*sdk.InitializeParams); ok && p != nil {
+			return p.ProtocolVersion
+		}
+	}
+	return ""
 }

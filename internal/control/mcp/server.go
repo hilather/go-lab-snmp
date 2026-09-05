@@ -1,14 +1,18 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -66,11 +70,13 @@ type Server struct {
 	svc      app.Service
 	sdk      *sdk.Server
 	http     *sdk.StreamableHTTPHandler
+	httpOpts *sdk.StreamableHTTPOptions
 	maxBody  int64
 	timeout  time.Duration
 	inflight chan struct{}
 	rate     *limiter
 	closed   atomic.Bool
+	sec      sync.RWMutex
 }
 
 type ctxKey int
@@ -124,9 +130,7 @@ func New(cfg Config) (*Server, error) {
 		SchemaCache: sdk.NewSchemaCache(),
 	}
 	s.sdk = sdk.NewServer(impl, sdkOpts)
-	if !cfg.AllowLegacyClients {
-		s.sdk.AddReceivingMiddleware(pinProtocolMiddleware)
-	}
+	s.sdk.AddReceivingMiddleware(s.pinProtocolMiddleware)
 	if appSvc, ok := s.svc.(*app.App); ok {
 		appSvc.OnReset(s.reloadAuth)
 		appSvc.OnApply(s.reloadAuth)
@@ -134,16 +138,17 @@ func New(cfg Config) (*Server, error) {
 	s.registerTools()
 	s.registerResources()
 
-	s.http = sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
-		return s.sdk
-	}, &sdk.StreamableHTTPOptions{
+	s.httpOpts = &sdk.StreamableHTTPOptions{
 		// 2026-07-28 Streamable HTTP is accepted only when Stateless is true.
 		Stateless:                    true,
 		Logger:                       logger,
 		MaxRequestBodyBytes:          maxBody,
 		PropagateRequestCancellation: true,
 		DisableLocalhostProtection:   true,
-	})
+	}
+	s.http = sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
+		return s.sdk
+	}, s.httpOpts)
 	return s, nil
 }
 
@@ -166,7 +171,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := checkOrigin(r.Header.Get(headerOrigin), s.cfg.AllowedOrigins); err != nil {
+	if err := checkOrigin(r.Header.Get(headerOrigin), s.allowedOrigins()); err != nil {
 		writeRPC(w, http.StatusForbidden, err)
 		return
 	}
@@ -190,7 +195,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	var cancel context.CancelFunc
-	if s.timeout > 0 && !isLongRequest(r) {
+	if s.timeout > 0 && !s.isLongRequest(r) {
 		ctx, cancel = context.WithTimeout(ctx, s.timeout)
 		defer cancel()
 	}
@@ -203,7 +208,7 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	if !s.cfg.AllowLegacyClients {
+	if !s.allowLegacy() {
 		if err := validateProtocolVersion(r); err != nil {
 			writeRPC(w, http.StatusBadRequest, err)
 			return
@@ -224,8 +229,53 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.http.ServeHTTP(w, r)
 }
 
-func isLongRequest(r *http.Request) bool {
-	return strings.TrimSpace(r.Header.Get(headerName)) == toolWait
+func (s *Server) isLongRequest(r *http.Request) bool {
+	if strings.TrimSpace(r.Header.Get(headerName)) == toolWait {
+		return true
+	}
+	return s.peekToolWait(r)
+}
+
+func (s *Server) peekToolWait(r *http.Request) bool {
+	if r.Body == nil {
+		return false
+	}
+	limit := s.maxBody
+	if limit <= 0 {
+		limit = DefaultMaxBodyBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil || int64(len(body)) > limit {
+		return false
+	}
+	return jsonRPCIsToolWait(body)
+}
+
+func jsonRPCIsToolWait(body []byte) bool {
+	var msg struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return false
+	}
+	return msg.Method == "tools/call" && msg.Params.Name == toolWait
+}
+
+func (s *Server) allowedOrigins() []string {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return append([]string(nil), s.cfg.AllowedOrigins...)
+}
+
+func (s *Server) allowLegacy() bool {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return s.cfg.AllowLegacyClients
 }
 
 func requestID(r *http.Request) string {
@@ -265,15 +315,19 @@ func (s *Server) actorFrom(ctx context.Context) app.Actor {
 }
 
 func (s *Server) reloadAuth() {
-	if s.cfg.Auth == nil {
-		return
-	}
 	appSvc, ok := s.svc.(*app.App)
 	if !ok {
 		return
 	}
 	snap := appSvc.Active()
 	if snap == nil || snap.Canonical == nil {
+		return
+	}
+	s.sec.Lock()
+	s.cfg.AllowedOrigins = append([]string(nil), snap.Canonical.Spec.Management.AllowedOrigins...)
+	s.cfg.AllowLegacyClients = snap.Canonical.Spec.Management.MCP.AllowLegacyClients
+	s.sec.Unlock()
+	if s.cfg.Auth == nil {
 		return
 	}
 	next, err := auth.FromSpecAt(snap.Canonical.Spec.Auth, appSvc.BootstrapDir())

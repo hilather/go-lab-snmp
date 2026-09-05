@@ -18,6 +18,7 @@ import (
 )
 
 const testBearerToken = "abcdefghijklmnopqrstuvwxyz123456"
+const testReaderToken = "abcdefghijklmnopqrstuvwxyz654321"
 
 func repoRoot(t *testing.T) string {
 	t.Helper()
@@ -215,6 +216,34 @@ func callTool(t *testing.T, cs *sdk.ClientSession, name string, args any) *sdk.C
 		t.Fatalf("CallTool %s: %v", name, err)
 	}
 	return res
+}
+
+func toolErrorCode(t *testing.T, res *sdk.CallToolResult) string {
+	t.Helper()
+	if !res.IsError {
+		t.Fatal("want tool error")
+	}
+	if m, ok := res.StructuredContent.(map[string]any); ok {
+		if code, _ := m["code"].(string); code != "" {
+			return code
+		}
+	}
+	raw, err := json.Marshal(res.StructuredContent)
+	if err == nil {
+		var m map[string]any
+		if json.Unmarshal(raw, &m) == nil {
+			if code, _ := m["code"].(string); code != "" {
+				return code
+			}
+		}
+	}
+	for _, c := range res.Content {
+		if tc, ok := c.(*sdk.TextContent); ok && strings.Contains(strings.ToLower(tc.Text), "forbidden") {
+			return "forbidden"
+		}
+	}
+	t.Fatalf("missing error code structured=%v", res.StructuredContent)
+	return ""
 }
 
 func structuredMap(t *testing.T, res *sdk.CallToolResult) map[string]any {

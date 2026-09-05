@@ -92,7 +92,7 @@ func (s *Server) authorizeTool(actor app.Actor, name string) error {
 	}
 	caps := capabilities.LookupTool(name)
 	if len(caps) == 0 {
-		return nil
+		return domainerr.Forbidden("unknown tool")
 	}
 	return auth.AuthorizeScopes(actor.Scopes, caps[0].RequiredScopes)
 }

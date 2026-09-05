@@ -71,6 +71,12 @@ func TestStatelessTrue(t *testing.T) {
 	if s.http == nil {
 		t.Fatal("http handler")
 	}
+	if s.httpOpts == nil || !s.httpOpts.Stateless {
+		t.Fatal("Streamable HTTP must set Stateless true")
+	}
+	if s.httpOpts.Logger == nil {
+		t.Fatal("SDK logger must be set (stderr, never stdout)")
+	}
 }
 
 func compareLines(t *testing.T, path string, got []string) {

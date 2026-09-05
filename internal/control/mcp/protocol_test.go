@@ -1,12 +1,18 @@
 package mcp
 
 import (
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/store"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestProtocolVersionRequired(t *testing.T) {
@@ -31,7 +37,7 @@ func TestProtocolVersionMismatch(t *testing.T) {
 }
 
 func TestPinnedProtocolDiscover(t *testing.T) {
-	s, _ := newTestServer(t)
+	s, _ := newPinnedServer(t)
 	ts := startHTTP(t, s)
 	cs := connectClient(t, ts)
 	ir := cs.InitializeResult()
@@ -133,5 +139,61 @@ func TestAllowLegacyClientsNegotiatesViaSDK(t *testing.T) {
 	}, "127.0.0.1:1")
 	if rec2.Code == http.StatusBadRequest {
 		t.Fatalf("legacy mismatched header rejected: %s", rec2.Body.String())
+	}
+}
+
+func TestWaitPeeksBodyWithoutMcpName(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := rpcCall(1, "tools/call", map[string]any{
+		"name": toolWait, "arguments": map[string]any{"timeout": "500ms"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	if !s.isLongRequest(req) {
+		t.Fatal("tools/call snmp_traps_wait must skip the 30s cap without Mcp-Name")
+	}
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("peek consumed body: %s", got)
+	}
+}
+
+func TestTrapsWaitSkipsGenericRequestTimeout(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:            svc,
+		RatePerSec:         -1,
+		AllowLegacyClients: true,
+		RequestTimeout:     40 * time.Millisecond,
+		Auth:               auth.Static(testBearerToken, "admin", model.RoleAdministrator),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	done := make(chan *sdk.CallToolResult, 1)
+	go func() {
+		done <- callTool(t, cs, "snmp_traps_wait", map[string]any{"timeout": "500ms"})
+	}()
+	time.Sleep(80 * time.Millisecond)
+	id, err := svc.Traps().Insert(store.TrapRecord{
+		Version:         "v2c",
+		PDUType:         "trapv2",
+		Community:       "public",
+		NotificationOID: "1.3.6.1.6.3.1.1.5.1",
+		ReceivedAt:      time.Now().UTC(),
+		Raw:             []byte{0x30, 0x00},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := <-done
+	got := structuredMap(t, res)
+	if got["id"] != id {
+		t.Fatalf("wait id %v want %s", got["id"], id)
 	}
 }
