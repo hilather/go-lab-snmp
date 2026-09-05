@@ -17,6 +17,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/control/mcp"
 	"github.com/hilather/go-lab-snmp/internal/control/rest"
 	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
@@ -180,6 +181,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 
 	var restSrv *rest.Server
+	var mcpSrv *mcp.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	if !mgmtOff {
 		v, vErr := auth.FromSpecAt(st.Spec.Auth, filepath.Dir(flags.Config))
@@ -206,12 +208,36 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		origins := []string{}
 		bodyLimit := config.DefaultBodyLimit
 		publicMetrics := false
+		allowLegacy := false
 		if st != nil {
 			origins = st.Spec.Management.AllowedOrigins
 			if st.Spec.Management.BodyLimit > 0 {
 				bodyLimit = st.Spec.Management.BodyLimit
 			}
 			publicMetrics = st.Spec.Observability.Metrics.PublicPath
+			allowLegacy = st.Spec.Management.MCP.AllowLegacyClients
+		}
+		mcpSrv, err = mcp.New(mcp.Config{
+			Service:            svc,
+			AllowedOrigins:     origins,
+			AllowLegacyClients: allowLegacy,
+			RatePerSec:         -1,
+			MaxBodyBytes:       bodyLimit,
+			Auth:               v,
+		})
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: mcp: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if sink != nil {
+				_ = sink.Shutdown(shctx)
+			}
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		mcpPath := mcp.DefaultPath
+		if st != nil && strings.TrimSpace(st.Spec.Listeners.Management.MCPPath) != "" {
+			mcpPath = st.Spec.Listeners.Management.MCPPath
 		}
 		restSrv, err = rest.New(rest.Config{
 			Addr:           flags.ManagementListen,
@@ -234,9 +260,13 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 				}
 				return true
 			},
+			Mounts: map[string]http.Handler{
+				mcpPath: mcpSrv.Handler(),
+			},
 		})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: rest: %v\n", err)
+			mcpSrv.Close()
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			if sink != nil {
 				_ = sink.Shutdown(shctx)
@@ -275,6 +305,9 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	defer cancel()
 	if restSrv != nil {
 		_ = restSrv.Shutdown(shctx)
+	}
+	if mcpSrv != nil {
+		mcpSrv.Close()
 	}
 	if sink != nil {
 		_ = sink.Shutdown(shctx)

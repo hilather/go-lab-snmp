@@ -82,7 +82,7 @@ func TestUnknownCommand(t *testing.T) {
 }
 
 func TestUnimplementedCommands(t *testing.T) {
-	for _, cmd := range []string{"healthcheck", "mcp-stdio"} {
+	for _, cmd := range []string{"healthcheck"} {
 		var stdout, stderr bytes.Buffer
 		code := run([]string{"labsnmp", cmd}, &stdout, &stderr)
 		if code != 1 {
@@ -91,6 +91,26 @@ func TestUnimplementedCommands(t *testing.T) {
 		if !strings.Contains(stderr.String(), "not implemented") {
 			t.Fatalf("%s stderr %q", cmd, stderr.String())
 		}
+	}
+}
+
+func TestMCPStdioRequiresFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"labsnmp", "mcp-stdio"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--config") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"labsnmp", "mcp-stdio", "--config", "testdata/config/valid/full.yaml"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--token-file") {
+		t.Fatalf("stderr %q", stderr.String())
 	}
 }
 

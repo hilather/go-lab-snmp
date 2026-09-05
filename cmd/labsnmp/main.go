@@ -31,7 +31,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return canonicalizeCmd(args[2:], stdout, stderr)
 	case "serve":
 		return serveCmd(args[2:], stdout, stderr)
-	case "healthcheck", "mcp-stdio":
+	case "mcp-stdio":
+		return mcpStdioCmd(args[2:], stdout, stderr)
+	case "healthcheck":
 		_, _ = fmt.Fprintf(stderr, "labsnmp %s: not implemented\n", args[1])
 		return 1
 	default:

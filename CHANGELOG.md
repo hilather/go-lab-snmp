@@ -4,6 +4,7 @@
 
 ### Added
 
+- Streamable HTTP MCP adapter (`internal/control/mcp`) over `app.Service`: `snmp_*` tools, `labsnmp://` resources, protocol `2026-07-28`, `POST /mcp` with `Stateless: true`, SDK v1.7.0 only in the adapter, `labsnmp mcp-stdio --config --token-file`, and `make test-parity`. MCP does not HTTP-call REST. `allowLegacyClients` defaults false; lab overlay true (MCP-001).
 - Management bearer from `spec.auth.tokens[].secretFile` (≥32 bytes, SHA-256 digest compare), cookie `labsnmp_session` (HttpOnly SameSite=Lax Path=/), CSRF `X-LabSNMP-CSRF` in process memory, exact-match Origins, and an in-memory audit ring. Every `/v1` route except health (and metrics if `publicPath`) requires bearer or session. Users list keeps `secretFile` paths and never file contents (SEC-001).
 - REST `/v1` adapter (`internal/control/rest`) over `app.Service` plus the frozen capability table (`internal/capabilities`). Every PARITY_REQUIRED route, unauthenticated health live/ready, `application/problem+json` (`urn:labsnmp:error:<code>`), K20 features catalog, generated `api/openapi/v1.json` and `api/capabilities/v1.json`. `--management-listen` binds HTTP (default still off).
 - Snapshot compile and atomic swap (`internal/compiler`, `internal/snapshot`) plus HTTP-less `internal/app` plan/apply/reset. Closed apply ops from docs/04, `expectedRevision` + idempotency, `oids:set` sharing the SNMP SET overlay, and Reset that rereads bootstrap / drops overlay / wipes traps+queries without writing the file (APP-001).

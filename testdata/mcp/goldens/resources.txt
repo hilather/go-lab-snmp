@@ -1,0 +1,10 @@
+labsnmp://capabilities
+labsnmp://status
+labsnmp://features
+labsnmp://state
+labsnmp://maps
+labsnmp://maps/{name}
+labsnmp://queries
+labsnmp://traps
+labsnmp://traps/{id}
+labsnmp://stats

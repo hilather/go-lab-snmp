@@ -77,7 +77,9 @@ generate:
 verify-generated:
 	$(GO) run ./scripts/generate -check
 
-test-parity \
+test-parity:
+	$(GO) test ./internal/capabilities ./internal/control/rest ./internal/control/mcp -count=1
+
 test-container security-scan web-install web-test web-build web-embed:
 	@echo 'make $@: not implemented' >&2
 	@false
