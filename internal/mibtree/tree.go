@@ -27,7 +27,6 @@ type Tree struct {
 
 type instance struct {
 	oid       OID
-	name      string
 	typ       string
 	access    string
 	value     Value
@@ -85,7 +84,6 @@ func Compile(objects []model.Object) (*Tree, error) {
 
 		inst := instance{
 			oid:       oid,
-			name:      strings.TrimSpace(o.Name),
 			typ:       o.Type,
 			access:    access,
 			value:     val,

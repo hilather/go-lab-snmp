@@ -223,6 +223,23 @@ func TestGetBulkNonRepeatersAndRepetitions(t *testing.T) {
 	}
 }
 
+func TestGetBulkTwoRepeaters(t *testing.T) {
+	// RFC 3416 order is outer-repetition, inner-repeater. R=1 goldens
+	// cannot catch a swapped nest.
+	tree := mustCompileFile(t, "lex-order.yaml")
+	got := tree.GetBulk([]OID{mustOID(t, "1.3"), mustOID(t, "1.3.6")}, 0, 2)
+	want := []string{"1.3.6", "1.3.6.1", "1.3.6.1", "1.3.10"}
+	names := resultsOIDs(got)
+	if len(names) != len(want) {
+		t.Fatalf("len=%d results=%v want %v", len(names), names, want)
+	}
+	for i := range want {
+		if names[i] != want[i] {
+			t.Fatalf("results=%v want %v", names, want)
+		}
+	}
+}
+
 func TestGetBulkMaxRepetitionsCap(t *testing.T) {
 	tree := mustCompileFile(t, "lex-order.yaml")
 	got := tree.GetBulk([]OID{mustOID(t, "1.3")}, 0, 10_000)
