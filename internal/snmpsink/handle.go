@@ -234,8 +234,8 @@ func (s *Server) ackInform(pc net.PacketConn, addr net.Addr, msg snmpwire.Messag
 	if err != nil || len(out) == 0 {
 		return
 	}
-	ack(pc, addr, out)
 	s.InformAck.Add(1)
+	ack(pc, addr, out)
 }
 
 // ack is the INFORM (and v3 Report) reply path. WriteTo on the trap

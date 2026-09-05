@@ -2,6 +2,7 @@ package snmpsink
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,6 +61,35 @@ func TestInformWriteToSource(t *testing.T) {
 	if rec.PDUType != "inform" || rec.Community != "public" {
 		t.Fatalf("%+v", rec)
 	}
+}
+
+func TestInformAckCountedBeforeWriteTo(t *testing.T) {
+	s := startSink(t, Config{})
+	wrapPacketConn(t, s, func(pc net.PacketConn) net.PacketConn {
+		return &orderPC{PacketConn: pc, acks: &s.InformAck, t: t}
+	})
+	req := snmptest.MustEncodeInform(t, "public", 16, coldStart())
+	m := snmptest.MustExchange(t, dst(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 16 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+	if s.InformAck.Load() < 1 {
+		t.Fatal("InformAck")
+	}
+}
+
+type orderPC struct {
+	net.PacketConn
+	acks *atomic.Int64
+	t    *testing.T
+}
+
+func (o *orderPC) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if o.acks.Load() < 1 {
+		o.t.Error("InformAck must increment before WriteTo")
+	}
+	return o.PacketConn.WriteTo(p, addr)
 }
 
 func TestInformWriteToListenPacket(t *testing.T) {

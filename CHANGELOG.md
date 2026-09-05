@@ -41,6 +41,9 @@ All notable user-visible and operator-visible changes are recorded here.
   bootstrap `listeners.agent.address` / `traps.address` then Reset moves
   the PacketConn. An empty desired UDP address stops that listener.
   A failed new bind leaves the old sockets serving (U2).
+- INFORM acknowledgements increment `InformAck` before `WriteTo` so
+  the counter cannot race the reply (`internal/snmpsink`). Store-then-ack
+  is unchanged (ADR 0007).
 
 ### Removed
 
