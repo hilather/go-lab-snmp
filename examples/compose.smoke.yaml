@@ -1,8 +1,8 @@
 # Minimal Compose smoke for the hardened image.
 # Default path uses --snmp-listen=:1161 --trap-listen=:1162 and cap_drop ALL
-# (no NET_BIND_SERVICE). Integrator overlay binds :161/:162 and restores only
-# that cap. Host-publish UDP may SNAT via userland-proxy (NAT collision);
-# identity is community/user, not client IP.
+# (no NET_BIND_SERVICE). Integrator overlay (docs/13) binds :161/:162 and
+# restores only that cap. Host-publish UDP may SNAT via userland-proxy
+# (NAT collision); identity is community/user, not client IP.
 services:
   labsnmp:
     image: ghcr.io/hilather/labsnmp:test

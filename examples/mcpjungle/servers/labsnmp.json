@@ -1,0 +1,7 @@
+{
+  "name": "labsnmp",
+  "transport": "streamable_http",
+  "description": "Laboratory SNMPv1/v2c/v3 agent and receive-only trap sink (LabSNMP): per-community and per-user OID maps, plan/apply/reset, SET overlay, trap wait over REST /v1 and MCP /mcp.",
+  "url": "http://labsnmp:8088/mcp",
+  "bearer_token": "${LABSNMP_TOKEN}"
+}

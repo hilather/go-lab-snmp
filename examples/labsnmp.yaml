@@ -1,0 +1,173 @@
+# Lab overlay BOM for mcp-integration-lab. Copy to
+# profiles/default/labsnmp/bootstrap.yaml and mount at
+# /etc/labsnmp/config.yaml. Do not recopy testdata/config/valid/full.yaml
+# blindly: the lab overlay uses maps public-if / private-if, user alice,
+# allowClientCidrs for the lab subnet plus loopback, and
+# allowLegacyClients so MCPJungle can register without a LabSNMP patch.
+# Bind-mounted secret files must be 0o644 (UID 65532).
+#
+# Host-publish UDP may SNAT via Docker userland-proxy (NAT collision).
+# LabSNMP keys views by community/user, not client IP.
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: lab-snmp
+spec:
+  listeners:
+    agent:
+      enabled: true
+      address: ":161" # container; host map is LABSNMP_AGENT_PORT (default 10161)
+    traps:
+      enabled: true
+      address: ":162" # container; host map is LABSNMP_TRAP_PORT (default 10162)
+    dtls:
+      enabled: false
+    tcp:
+      enabled: false
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: admin
+        role: administrator
+        secretFile: /run/secrets/labsnmp-token
+  engine:
+    engineBoots: 1
+  agent:
+    versions: [v1, v2c, v3]
+    maxVarBinds: 64
+    maxRepetitions: 100
+    maxMessageBytes: 64KiB
+  admission:
+    # Overlay MUST set this. Omitted materializes loopback only.
+    allowClientCidrs:
+      - "10.99.42.0/24"
+      - "127.0.0.0/8"
+      - "::1/128"
+    maxDatagramsPerSec: 10000
+    maxDatagramsPerIP: 500
+  ui:
+    enabled: true
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true # MCPJungle (mark3labs/mcp-go) without a LabSNMP patch
+    bodyLimit: 1MiB
+  observability:
+    logLevel: info
+    metrics:
+      publicPath: false
+  traps:
+    maxMessages: 1000
+    maxBytes: 16MiB
+    fullPolicy: evict_oldest
+    maxWait: 60s
+    acceptUnauthenticated: false
+    rawRetain: true
+  maps:
+    - name: public-if
+      objects:
+        - oid: "10.20.0.3.10.20.0.5.0"
+          name: sysDescr
+          type: octetString
+          access: read
+          value: "LabSNMP public-if"
+        - oid: "10.20.0.3.10.0.1.5.0"
+          name: sysObjectID
+          type: objectIdentifier
+          access: read
+          value: "1.3.6.1.4.1.8072.3.2.10"
+        - oid: "10.20.0.3.10.20.0.4.0"
+          name: sysUpTime
+          type: timeTicks
+          access: read
+          valueFrom: uptime
+        - oid: "10.20.0.3.10.0.1.4.0"
+          name: sysName
+          type: octetString
+          access: write
+          value: "labsnmp"
+        - oid: "10.20.0.3.172.16.0.2.1.1"
+          name: ifIndex.1
+          type: integer
+          access: read
+          value: 1
+        - oid: "10.20.0.3.172.16.0.2.1.2"
+          name: ifIndex.2
+          type: integer
+          access: read
+          value: 2
+        - oid: "10.20.0.3.172.16.0.2.1.1"
+          name: ifDescr.1
+          type: octetString
+          access: read
+          value: "lo"
+        - oid: "10.20.0.3.172.16.0.2.2"
+          name: ifDescr.2
+          type: octetString
+          access: read
+          value: "eth0"
+        - oid: "10.20.0.3.172.16.1.4.1"
+          name: ifOperStatus.1
+          type: integer
+          access: write
+          value: 1
+          range: { min: 1, max: 7 }
+        - oid: "10.20.0.3.172.16.1.4.2"
+          name: ifOperStatus.2
+          type: integer
+          access: write
+          value: 1
+          range: { min: 1, max: 7 }
+    - name: private-if
+      objects:
+        - oid: "10.20.0.3.10.20.0.5.0"
+          name: sysDescr
+          type: octetString
+          access: read
+          value: "LabSNMP private-if"
+        - oid: "10.20.0.3.10.0.1.5.0"
+          name: sysObjectID
+          type: objectIdentifier
+          access: read
+          value: "1.3.6.1.4.1.99999.1"
+        - oid: "10.20.0.3.10.20.0.4.0"
+          name: sysUpTime
+          type: timeTicks
+          access: read
+          valueFrom: uptime
+        - oid: "1.3.6.1.4.1.99999.1.0"
+          name: labPrivate
+          type: octetString
+          access: read
+          value: "private-horizon"
+        - oid: "1.3.6.1.4.1.99999.2.0"
+          name: labCounter64
+          type: counter64
+          access: read
+          value: 18446744073709551615
+  communities:
+    - name: public
+      communityFile: /run/secrets/snmp-public
+      versions: [v1, v2c]
+      access: read
+      map: public-if
+    - name: private
+      communityFile: /run/secrets/snmp-private
+      versions: [v2c]
+      access: read-write
+      map: private-if
+  users:
+    - name: alice
+      level: authPriv
+      auth:
+        protocol: sha256
+        secretFile: /run/secrets/snmp-alice-auth
+      priv:
+        protocol: aes128
+        secretFile: /run/secrets/snmp-alice-priv
+      access: read-write
+      map: private-if
