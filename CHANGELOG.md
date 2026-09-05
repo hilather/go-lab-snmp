@@ -4,7 +4,8 @@
 
 ### Added
 
-- UDP/161 agent (`internal/snmpagent`): `ListenPacket`, CIDR+rate admission, community isolation, GET/GETNEXT/GETBULK/SET with two-phase overlay SET, `valueFrom: uptime` (1s → TimeTicks 100), and thin `labsnmp serve --config --snmp-listen` with `--management-listen` default off. Trap stays unbound until TRAP-001. Hand-wire Runtime (no app/compiler/snapshot) (AGENT-001).
+- UDP/162 trap/inform sink (`internal/snmpsink` + `internal/store` ring): `ListenPacket`, TRAPv1 / SNMPv2-TRAP / INFORM including v3 USM, INFORM `WriteTo` (never Dial), bounded ring with wait/wipe, `acceptUnauthenticated` default false, ULID ids, and `labsnmp serve --trap-listen` (empty uses YAML `traps.enabled` / `traps.address`; `off` disables). Ready’s trap clause is on (TRAP-001).
+- UDP/161 agent (`internal/snmpagent`): `ListenPacket`, CIDR+rate admission, community isolation, GET/GETNEXT/GETBULK/SET with two-phase overlay SET, `valueFrom: uptime` (1s → TimeTicks 100), and thin `labsnmp serve --config --snmp-listen` with `--management-listen` default off. Hand-wire Runtime (no app/compiler/snapshot) (AGENT-001).
 - Bounded SNMPv3 USM (`internal/usm`): noAuthNoPriv / authNoPriv / authPriv with HMAC-MD5-96, HMAC-SHA-96, HMAC-SHA-256-192 and CBC-DES / CFB128-AES-128; RFC 3414 engine discovery Reports (`usmStatsUnknownEngineIDs` / `unknownUserNames` and the other usmStats counters); localized keys from passphrases; 150-second process-clock window. HMAC/decrypt here; WIRE keeps ciphertext as OCTET STRING (USM-001).
 - First-party SNMPv1/v2c/v3 BER codec (`internal/snmpwire`): Get/GetNext/GetBulk/Set/Response/Trap-v1/SNMPv2-Trap/Inform/Report, v3 ciphertext as OCTET STRING, request-id preservation, max-message cap, constructed packet goldens plus skip-if-missing net-snmp `-d` interop, and decoder + OID fuzz (WIRE-001).
 - Lex-ordered OID instance tree: GET, GETNEXT, GETBULK, and SET-check (MAP-001).

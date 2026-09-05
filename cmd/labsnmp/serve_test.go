@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 )
@@ -24,6 +25,7 @@ func TestServeAnswersWithManagementOff(t *testing.T) {
 		errc <- serveWithContext(ctx, []string{
 			"--config", "testdata/config/valid/full.yaml",
 			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", "127.0.0.1:0",
 		}, pw, io.Discard)
 		_ = pw.Close()
 	}()
@@ -40,19 +42,19 @@ func TestServeAnswersWithManagementOff(t *testing.T) {
 			}
 		}
 	}()
-	var listen string
+	var listen, trapListen string
 	deadline := time.After(5 * time.Second)
-	for listen == "" {
+	for listen == "" || trapListen == "" {
 		select {
 		case line := <-lines:
-			if strings.Contains(line, "trap listen=") || strings.Contains(line, "trap: bound") {
-				t.Fatalf("trap must stay unbound: %q", line)
-			}
 			if strings.HasPrefix(line, "labsnmp snmp listen=") {
 				listen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp snmp listen="))
 			}
+			if strings.HasPrefix(line, "labsnmp trap listen=") {
+				trapListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp trap listen="))
+			}
 		case <-deadline:
-			t.Fatal("missing snmp listen line")
+			t.Fatal("missing snmp/trap listen line")
 		}
 	}
 	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
@@ -61,6 +63,8 @@ func TestServeAnswersWithManagementOff(t *testing.T) {
 	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
 		t.Fatalf("%+v", p)
 	}
+	trap := snmptest.MustEncodeTrapV2(t, "public", 2, snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1})
+	snmptest.MustSend(t, trapListen, trap)
 	cancel()
 	select {
 	case code := <-errc:
@@ -80,55 +84,183 @@ func TestServeMissingConfig(t *testing.T) {
 	}
 }
 
-func TestServeRejectsTrapAndManagementListen(t *testing.T) {
+func TestServeTrapListenOffUnbound(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/full.yaml",
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", "off",
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var sawNotBound bool
+	deadline := time.After(5 * time.Second)
+	for !sawNotBound {
+		select {
+		case line := <-lines:
+			if strings.Contains(line, "trap listen=") {
+				t.Fatalf("trap must stay unbound: %q", line)
+			}
+			if strings.Contains(line, "trap: not bound") {
+				sawNotBound = true
+			}
+		case <-deadline:
+			t.Fatal("missing trap not-bound line")
+		}
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestServeRejectsManagementListen(t *testing.T) {
 	t.Chdir(repoRoot(t))
 	cfg := "testdata/config/valid/full.yaml"
-	t.Run("trap=:162", func(t *testing.T) {
-		var stdout, stderr bytes.Buffer
-		code := serveWithContext(context.Background(), []string{
-			"--config", cfg,
+	var stdout, stderr bytes.Buffer
+	code := serveWithContext(context.Background(), []string{
+		"--config", cfg,
+		"--snmp-listen", "127.0.0.1:0",
+		"--trap-listen", "off",
+		"--management-listen", ":8088",
+	}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--management-listen") {
+		t.Fatalf("stderr %q", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "snmp listen=") {
+		t.Fatal("must not bind the agent when management-listen is rejected")
+	}
+}
+
+func TestServeTrapListenBinds(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/full.yaml",
 			"--snmp-listen", "127.0.0.1:0",
-			"--trap-listen", ":162",
-		}, &stdout, &stderr)
-		if code != 2 {
-			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
+			"--trap-listen", "127.0.0.1:0",
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
 		}
-		if !strings.Contains(stderr.String(), "--trap-listen") || !strings.Contains(stderr.String(), "TRAP-001") {
-			t.Fatalf("stderr %q", stderr.String())
+	}()
+	var trapListen string
+	deadline := time.After(5 * time.Second)
+	for trapListen == "" {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp trap listen=") {
+				trapListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp trap listen="))
+			}
+		case <-deadline:
+			t.Fatal("missing trap listen line")
 		}
-		if strings.Contains(stdout.String(), "snmp listen=") {
-			t.Fatal("must not bind the agent when trap-listen is rejected")
+	}
+	req := snmptest.MustEncodeInform(t, "public", 15, snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1})
+	m := snmptest.MustExchange(t, trapListen, req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 15 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
 		}
-	})
-	t.Run("trap high port unbound", func(t *testing.T) {
-		const trapAddr = "127.0.0.1:26162"
-		var stdout, stderr bytes.Buffer
-		code := serveWithContext(context.Background(), []string{
-			"--config", cfg,
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func TestResolveTrapListen(t *testing.T) {
+	if addr, on := resolveTrapListen("off", nil); on || addr != "" {
+		t.Fatalf("off: %s %v", addr, on)
+	}
+	if addr, on := resolveTrapListen("127.0.0.1:1162", nil); !on || addr != "127.0.0.1:1162" {
+		t.Fatalf("flag: %s %v", addr, on)
+	}
+	yamlOn := &model.State{}
+	yamlOn.Spec.Listeners.Traps.Enabled = true
+	yamlOn.Spec.Listeners.Traps.Address = ":162"
+	if addr, on := resolveTrapListen("", yamlOn); !on || addr != ":162" {
+		t.Fatalf("yaml on: %s %v", addr, on)
+	}
+	if addr, on := resolveTrapListen("off", yamlOn); on || addr != "" {
+		t.Fatalf("flag off wins: %s %v", addr, on)
+	}
+	yamlOff := &model.State{}
+	yamlOff.Spec.Listeners.Traps.Enabled = false
+	yamlOff.Spec.Listeners.Traps.Address = ":162"
+	if addr, on := resolveTrapListen("", yamlOff); on || addr != "" {
+		t.Fatalf("yaml off: %s %v", addr, on)
+	}
+	if addr, on := resolveTrapListen("127.0.0.1:0", yamlOff); !on || addr != "127.0.0.1:0" {
+		t.Fatalf("flag wins over yaml off: %s %v", addr, on)
+	}
+}
+
+func TestTrapListenAddressStillFreeWhenOff(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	const trapAddr = "127.0.0.1:26162"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", "testdata/config/valid/full.yaml",
 			"--snmp-listen", "127.0.0.1:0",
-			"--trap-listen", trapAddr,
-		}, &stdout, &stderr)
-		if code != 2 {
-			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
-		}
-		pc, err := net.ListenPacket("udp", trapAddr)
-		if err != nil {
-			t.Fatalf("trap address must stay unbound: %v", err)
-		}
-		_ = pc.Close()
-	})
-	t.Run("management", func(t *testing.T) {
-		var stdout, stderr bytes.Buffer
-		code := serveWithContext(context.Background(), []string{
-			"--config", cfg,
-			"--snmp-listen", "127.0.0.1:0",
-			"--management-listen", ":8088",
-		}, &stdout, &stderr)
-		if code != 2 {
-			t.Fatalf("exit %d want 2 stderr=%q", code, stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "--management-listen") {
-			t.Fatalf("stderr %q", stderr.String())
-		}
-	})
+			"--trap-listen", "off",
+		}, io.Discard, io.Discard)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	pc, err := net.ListenPacket("udp", trapAddr)
+	if err != nil {
+		t.Fatalf("trap address must stay unbound: %v", err)
+	}
+	_ = pc.Close()
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
 }

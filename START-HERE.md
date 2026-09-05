@@ -15,14 +15,15 @@ go build -o bin/labsnmp ./cmd/labsnmp
 ```
 
 `validate` and `canonicalize` load a fail-closed `labsnmp.dev/v1alpha1`
-document. `serve --snmp-listen` binds the agent. `--management-listen`
-defaults **off**. Trap stays unbound until TRAP-001.
+document. `serve --snmp-listen` binds the agent. `--trap-listen` empty
+uses YAML (`:162` by default); pass `:1162` locally. `--management-listen`
+defaults **off**.
 
 ```
 ./bin/labsnmp validate --config testdata/config/valid/full.yaml
 ./bin/labsnmp canonicalize --config testdata/config/valid/full.yaml
 ./bin/labsnmp serve --config testdata/config/valid/full.yaml \
-  --snmp-listen=:1161
+  --snmp-listen=:1161 --trap-listen=:1162
 ```
 
 Interop (test machine with net-snmp tools):
@@ -30,6 +31,7 @@ Interop (test machine with net-snmp tools):
 ```
 snmpget -v2c -c public 127.0.0.1:1161 1.3.6.1.2.1.1.1.0
 snmpwalk -v2c -c public 127.0.0.1:1161 1.3.6.1.2.1.1
+snmptrap -v2c -c public 127.0.0.1:1162 '' 1.3.6.1.6.3.1.1.5.1
 ```
 
 `--management-listen` defaults **off**.

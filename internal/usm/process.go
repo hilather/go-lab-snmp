@@ -67,6 +67,47 @@ func (e *Engine) Open(raw []byte, msg snmpwire.Message) Outcome {
 	return Outcome{Incoming: &Incoming{User: u, Message: out, ScopedPDU: scoped}}
 }
 
+// OpenNotification authenticates a v3 SNMPv2-Trap. The sender is the
+// authoritative engine, so keys are localized to msg.USM.EngineID and
+// the local time window is not applied. Failures drop (no Report).
+func (e *Engine) OpenNotification(raw []byte, msg snmpwire.Message) Outcome {
+	if e == nil || msg.Version != snmpwire.VersionV3 || msg.MsgSecurityModel != snmpwire.SecurityModelUSM {
+		return Outcome{Drop: true}
+	}
+	if len(msg.USM.EngineID) == 0 {
+		return Outcome{Drop: true}
+	}
+	u := e.User(string(msg.USM.UserName))
+	if u == nil {
+		return Outcome{Drop: true}
+	}
+	level := msgLevel(msg.MsgFlags)
+	if !userSupports(u, level) {
+		return Outcome{Drop: true}
+	}
+	authKey, privKey, err := u.LocalizeFor(msg.USM.EngineID)
+	if err != nil {
+		return Outcome{Drop: true}
+	}
+	loc := *u
+	loc.authKey = authKey
+	loc.privKey = privKey
+	if msg.Auth() {
+		if err := e.verifyHMAC(raw, msg, &loc); err != nil {
+			return Outcome{Drop: true}
+		}
+	}
+	scoped, ok := e.scoped(msg, &loc)
+	if !ok {
+		return Outcome{Drop: true}
+	}
+	out := msg
+	out.ScopedPDU = &scoped
+	out.PDU = &scoped.PDU
+	out.EncryptedPDU = nil
+	return Outcome{Incoming: &Incoming{User: u, Message: out, ScopedPDU: scoped}}
+}
+
 func msgLevel(flags byte) string {
 	auth := flags&snmpwire.FlagAuth != 0
 	priv := flags&snmpwire.FlagPriv != 0

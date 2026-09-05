@@ -49,10 +49,10 @@ const usageText = `usage: labsnmp <command>
 
 LabSNMP is a laboratory SNMPv1/v2c/v3 agent with a receive-only
 trap/inform sink. validate and canonicalize load a fail-closed
-labsnmp.dev/v1alpha1 document. serve binds the agent UDP socket.
---management-listen and --trap-listen default off and reject a
-listen address until DEP-001 / TRAP-001. spec.ui.enabled false
-keeps GET / as 404 problem+json.
+labsnmp.dev/v1alpha1 document. serve binds the agent and trap UDP
+sockets. --trap-listen empty uses YAML traps.address; off disables.
+--management-listen defaults off and rejects a listen address until
+DEP-001. spec.ui.enabled false keeps GET / as 404 problem+json.
 
 Commands:
   version         print build and protocol metadata

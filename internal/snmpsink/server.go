@@ -1,13 +1,17 @@
-package snmpagent
+package snmpsink
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hilather/go-lab-snmp/internal/store"
+	"github.com/hilather/go-lab-snmp/internal/usm"
 )
 
 const (
@@ -15,26 +19,48 @@ const (
 	DefaultShutdownWait = 5 * time.Second
 )
 
-// Config is the UDP/161 listener configuration.
-type Config struct {
-	Addr        string
-	Runtime     *Runtime
-	MaxInflight int
+// Clock is an injectable time source.
+type Clock interface {
+	Now() time.Time
 }
 
-// Server is a unicast SNMPv1/v2c/v3 UDP listener.
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now() }
+
+// Community is a compiled v1/v2c identity. Name is the DNS-label row id.
+type Community struct {
+	Name string
+	Wire []byte
+}
+
+// Config is the UDP/162 listener configuration.
+type Config struct {
+	Addr                  string
+	Store                 *store.TrapRing
+	Communities           map[string]*Community // keyed by wire community string
+	Engine                *usm.Engine
+	AcceptUnauthenticated bool
+	RawRetain             bool
+	MaxMessageBytes       int64
+	Allow                 []netip.Prefix
+	MaxPerSec             int
+	MaxPerIP              int
+	MaxInflight           int
+	Clock                 Clock
+}
+
+// Server is a receive-only SNMPv1/v2c/v3 UDP trap/inform listener.
 type Server struct {
 	cfg Config
-	rt  *Runtime
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu       sync.Mutex
-	udp      net.PacketConn
-	bindAddr string
-	started  bool
-	stopped  bool
+	mu      sync.Mutex
+	udp     net.PacketConn
+	started bool
+	stopped bool
 
 	inflight chan struct{}
 	global   *queryLimiter
@@ -46,35 +72,36 @@ type Server struct {
 	Allowlist atomic.Int64
 	Admission atomic.Int64
 	Dropped   atomic.Int64
-	Served    atomic.Int64
+	Stored    atomic.Int64
+	InformAck atomic.Int64
 }
 
 // New validates cfg. Start binds and serves.
 func New(cfg Config) (*Server, error) {
-	if cfg.Runtime == nil {
-		return nil, errors.New("snmpagent: Runtime is required")
+	if cfg.Store == nil {
+		return nil, errors.New("snmpsink: Store is required")
 	}
 	if cfg.Addr == "" {
-		return nil, errors.New("snmpagent: Addr is required")
+		return nil, errors.New("snmpsink: Addr is required")
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
 	}
-	now := time.Now
-	if cfg.Runtime.Clock != nil {
-		clk := cfg.Runtime.Clock
-		now = clk.Now
+	if cfg.MaxMessageBytes < 1 {
+		cfg.MaxMessageBytes = 64 << 10
 	}
+	if cfg.Clock == nil {
+		cfg.Clock = systemClock{}
+	}
+	now := cfg.Clock.Now
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		cfg:      cfg,
-		rt:       cfg.Runtime,
 		ctx:      ctx,
 		cancel:   cancel,
-		bindAddr: cfg.Addr,
 		inflight: make(chan struct{}, cfg.MaxInflight),
-		global:   newQueryLimiter(float64(cfg.Runtime.MaxPerSec), float64(cfg.Runtime.MaxPerSec), now),
-		perIP:    newQueryLimiter(float64(cfg.Runtime.MaxPerIP), float64(cfg.Runtime.MaxPerIP), now),
+		global:   newQueryLimiter(float64(cfg.MaxPerSec), float64(cfg.MaxPerSec), now),
+		perIP:    newQueryLimiter(float64(cfg.MaxPerIP), float64(cfg.MaxPerIP), now),
 	}, nil
 }
 
@@ -83,17 +110,16 @@ func (s *Server) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
-		return errors.New("snmpagent: already started")
+		return errors.New("snmpsink: already started")
 	}
 	if s.stopped {
-		return errors.New("snmpagent: start after shutdown")
+		return errors.New("snmpsink: start after shutdown")
 	}
 	pc, err := net.ListenPacket("udp", s.cfg.Addr)
 	if err != nil {
-		return fmt.Errorf("snmpagent: udp listen: %w", err)
+		return fmt.Errorf("snmpsink: udp listen: %w", err)
 	}
 	s.udp = pc
-	s.bindAddr = s.cfg.Addr
 	s.started = true
 	s.wg.Add(1)
 	go s.serveUDP()
@@ -110,10 +136,9 @@ func (s *Server) Bound() bool {
 	return s.udp != nil && s.started && !s.stopped
 }
 
-// Ready is the agent clause: Runtime loaded and agent bound.
-// Trap Ready is snmpsink.Server.Ready when traps.enabled / --trap-listen.
+// Ready is the trap clause: the sink is bound.
 func (s *Server) Ready() bool {
-	return s != nil && s.rt != nil && s.Bound()
+	return s != nil && s.cfg.Store != nil && s.Bound()
 }
 
 // Addr is the bound UDP address, or nil.
@@ -124,6 +149,14 @@ func (s *Server) Addr() net.Addr {
 		return nil
 	}
 	return s.udp.LocalAddr()
+}
+
+// Store is the inbox this sink inserts into.
+func (s *Server) Store() *store.TrapRing {
+	if s == nil {
+		return nil
+	}
+	return s.cfg.Store
 }
 
 // Shutdown stops the read loop and waits up to ctx.
@@ -161,7 +194,7 @@ func (s *Server) conn() net.PacketConn {
 
 func (s *Server) serveUDP() {
 	defer s.wg.Done()
-	max := int(s.rt.MaxMessageBytes)
+	max := int(s.cfg.MaxMessageBytes)
 	if max < 1 {
 		max = 64 << 10
 	}

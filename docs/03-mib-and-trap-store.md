@@ -63,19 +63,29 @@ again. `storeGeneration` increments.
 
 ## Trap store
 
-LabMail-shaped ring:
+LabMail-shaped ring (`internal/store.TrapRing`), filled by the UDP/162
+receive-only sink (`internal/snmpsink`). INFORM is stored then
+acknowledged with `WriteTo` on the trap socket (never Dial).
 
-- id ULID
+- id ULID (`oklog/ulid/v2`)
 - receivedAt
 - version, pduType (`trapv1` \| `trapv2` \| `inform`)
-- community or user
+- community or user (YAML **row name**, never secret bytes)
 - remoteAddr (best-effort under Docker userland-proxy)
 - enterprise / notification OID
 - varbinds
-- raw
-- parseWarning
+- raw (if `rawRetain`)
+- parseWarning (best-effort decode)
 
 Caps: `maxMessages`, `maxBytes`, `fullPolicy: evict_oldest|reject`.
-`Wait(ctx, filter, timeout)` for agents.
+A single record larger than `maxBytes` is rejected; it does not wipe
+the inbox. `Wait(ctx, filter, timeout)` returns an existing match, a
+later insert, `wait_timeout`, or `store_wiped` if the ring is cleared
+during the wait. Timeout is capped by `spec.traps.maxWait`.
+
+Unknown community/user and failed v3 auth are dropped (metric, no
+store) unless `acceptUnauthenticated` (default false). v3 TRAPs use
+sender-authoritative USM (`LocalizeFor`); INFORMs use the local engine
+and an authenticated Response `WriteTo`.
 
 No durable spool. No forward.

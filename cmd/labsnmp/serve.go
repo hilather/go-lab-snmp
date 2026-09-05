@@ -13,7 +13,10 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
+	"github.com/hilather/go-lab-snmp/internal/snmpsink"
+	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
 type serveFlags struct {
@@ -30,7 +33,7 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	fs.SetOutput(stderr)
 	path := fs.String("config", "", "path to bootstrap YAML or JSON")
 	snmpListen := fs.String("snmp-listen", "", "override agent listen address (empty uses YAML)")
-	trapListen := fs.String("trap-listen", "off", "trap listen; off until TRAP-001 (address rejected)")
+	trapListen := fs.String("trap-listen", "", "override trap listen address (empty uses YAML; off disables)")
 	mgmtListen := fs.String("management-listen", "off", "management listen; off until DEP-001 (address rejected)")
 	shutdown := fs.Duration("shutdown-timeout", snmpagent.DefaultShutdownWait, "graceful shutdown deadline")
 	pidFile := fs.String("pid-file", "", "write process id after listeners bind")
@@ -65,6 +68,24 @@ func listenAddress(s string) bool {
 	return s != "" && !listenOff(s)
 }
 
+func resolveTrapListen(flag string, st *model.State) (addr string, enabled bool) {
+	switch {
+	case listenOff(flag):
+		return "", false
+	case listenAddress(flag):
+		return strings.TrimSpace(flag), true
+	default:
+		if st == nil || !st.Spec.Listeners.Traps.Enabled {
+			return "", false
+		}
+		addr = st.Spec.Listeners.Traps.Address
+		if addr == "" {
+			addr = config.DefaultTrapAddress
+		}
+		return addr, true
+	}
+}
+
 func serveCmd(args []string, stdout, stderr io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -74,10 +95,6 @@ func serveCmd(args []string, stdout, stderr io.Writer) int {
 func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags, err := parseServeFlags(args, stderr)
 	if err != nil {
-		return 2
-	}
-	if listenAddress(flags.TrapListen) {
-		_, _ = fmt.Fprintln(stderr, "labsnmp serve: --trap-listen is not implemented until TRAP-001")
 		return 2
 	}
 	if listenAddress(flags.ManagementListen) {
@@ -127,8 +144,28 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 	_, _ = fmt.Fprintf(stdout, "labsnmp snmp listen=%s\n", srv.Addr().String())
 
-	// Trap stays off until TRAP-001 even if YAML traps.enabled is true.
-	_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
+	var sink *snmpsink.Server
+	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
+	if trapOn {
+		sink, err = newTrapSink(trapAddr, st, rt)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		if err := sink.Start(); err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		_, _ = fmt.Fprintf(stdout, "labsnmp trap listen=%s\n", sink.Addr().String())
+	} else {
+		_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
+	}
 
 	_, _ = fmt.Fprintln(stdout, "labsnmp management: not bound")
 
@@ -145,7 +182,36 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	}
 	shctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
+	if sink != nil {
+		_ = sink.Shutdown(shctx)
+	}
 	_ = srv.Shutdown(shctx)
 	_, _ = fmt.Fprintln(stdout, "labsnmp: shutting down")
 	return 0
+}
+
+func newTrapSink(addr string, st *model.State, rt *snmpagent.Runtime) (*snmpsink.Server, error) {
+	ring := store.NewTrapRing(store.TrapPolicy{
+		MaxMessages: st.Spec.Traps.MaxMessages,
+		MaxBytes:    st.Spec.Traps.MaxBytes,
+		FullPolicy:  st.Spec.Traps.FullPolicy,
+		MaxWait:     st.Spec.Traps.MaxWait,
+	})
+	comms := make(map[string]*snmpsink.Community, len(rt.Communities))
+	for k, c := range rt.Communities {
+		comms[k] = &snmpsink.Community{Name: c.Name, Wire: append([]byte(nil), c.Wire...)}
+	}
+	return snmpsink.New(snmpsink.Config{
+		Addr:                  addr,
+		Store:                 ring,
+		Communities:           comms,
+		Engine:                rt.Engine,
+		AcceptUnauthenticated: st.Spec.Traps.AcceptUnauthenticated,
+		RawRetain:             st.Spec.Traps.RawRetain,
+		MaxMessageBytes:       rt.MaxMessageBytes,
+		Allow:                 rt.Allow,
+		MaxPerSec:             rt.MaxPerSec,
+		MaxPerIP:              rt.MaxPerIP,
+		Clock:                 rt.Clock,
+	})
 }

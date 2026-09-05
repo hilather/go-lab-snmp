@@ -561,3 +561,92 @@ func TestNonUSMDropped(t *testing.T) {
 		t.Fatal("v2c must drop")
 	}
 }
+
+func trapPDU(reqID int32) snmpwire.PDU {
+	return snmpwire.PDU{
+		Type:      snmpwire.PDUTrapV2,
+		RequestID: reqID,
+		VarBinds: []snmpwire.VarBind{
+			{Name: snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 3, 0}, Value: snmpwire.TimeTicksVal(1)},
+			{Name: snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0}, Value: snmpwire.ObjectIdentifier(snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1})},
+		},
+	}
+}
+
+func TestOpenNotificationRemoteEngine(t *testing.T) {
+	sink := mustEngine(t, nil)
+	sender, err := New(Config{EngineID: bytes.Repeat([]byte{0x80}, 8), EngineBoots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := UserConfig{
+		Name: "alice", Level: model.LevelAuthPriv,
+		AuthProtocol: model.AuthSHA256, AuthPassphrase: []byte("maplesyrup"),
+		PrivProtocol: model.PrivAES128, PrivPassphrase: []byte("priv-pass"),
+	}
+	if err := sink.AddUser(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.AddUser(cfg); err != nil {
+		t.Fatal(err)
+	}
+	msg := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            40,
+		MsgMaxSize:       65507,
+		MsgFlags:         Flags(model.LevelAuthPriv, false),
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		ScopedPDU:        &snmpwire.ScopedPDU{PDU: trapPDU(40)},
+	}
+	wire, err := sender.Wrap(sender.User("alice"), msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := snmpwire.Decode(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := sink.Open(wire, decoded)
+	if open.Incoming != nil {
+		t.Fatal("Open must not accept a remote-authoritative trap")
+	}
+	out := sink.OpenNotification(wire, decoded)
+	if out.Drop || out.Incoming == nil || out.Report != nil {
+		t.Fatalf("drop=%v report=%v", out.Drop, out.Report != nil)
+	}
+	p := out.Incoming.ScopedPDU.PDU
+	if p.Type != snmpwire.PDUTrapV2 || p.RequestID != 40 {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestOpenNotificationUnknownUserDrops(t *testing.T) {
+	sink := mustEngine(t, nil)
+	sender, err := New(Config{EngineID: bytes.Repeat([]byte{0x81}, 8), EngineBoots: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sender.AddUser(UserConfig{Name: "bob", Level: model.LevelNoAuthNoPriv}); err != nil {
+		t.Fatal(err)
+	}
+	msg := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            41,
+		MsgMaxSize:       65507,
+		MsgFlags:         Flags(model.LevelNoAuthNoPriv, false),
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		ScopedPDU:        &snmpwire.ScopedPDU{PDU: trapPDU(41)},
+	}
+	wire, err := sender.Wrap(sender.User("bob"), msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := snmpwire.Decode(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := sink.OpenNotification(wire, decoded)
+	if !out.Drop || out.Incoming != nil {
+		t.Fatalf("unknown user must drop")
+	}
+}

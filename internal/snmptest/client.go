@@ -116,6 +116,82 @@ func MustEncodeSet(t testing.TB, ver snmpwire.Version, community string, reqID i
 	return b
 }
 
+// EncodeCommunity serializes a v1/v2c PDU.
+func EncodeCommunity(ver snmpwire.Version, community string, pdu snmpwire.PDU) ([]byte, error) {
+	return snmpwire.Encode(snmpwire.Message{
+		Version:   ver,
+		Community: []byte(community),
+		PDU:       &pdu,
+	})
+}
+
+// EncodeTrapV2 builds a community SNMPv2-Trap.
+func EncodeTrapV2(community string, reqID int32, trapOID snmpwire.OID, extra ...snmpwire.VarBind) ([]byte, error) {
+	return EncodeCommunity(snmpwire.VersionV2c, community, TrapV2PDU(reqID, trapOID, extra...))
+}
+
+// EncodeInform builds a community INFORM.
+func EncodeInform(community string, reqID int32, trapOID snmpwire.OID, extra ...snmpwire.VarBind) ([]byte, error) {
+	p := TrapV2PDU(reqID, trapOID, extra...)
+	p.Type = snmpwire.PDUInform
+	return EncodeCommunity(snmpwire.VersionV2c, community, p)
+}
+
+// EncodeTrapV1 builds a community TRAPv1.
+func EncodeTrapV1(community string, pdu snmpwire.PDU) ([]byte, error) {
+	pdu.Type = snmpwire.PDUTrapV1
+	return EncodeCommunity(snmpwire.VersionV1, community, pdu)
+}
+
+// TrapV2PDU is the SNMPv2-Trap/INFORM varbind prefix (sysUpTime, snmpTrapOID).
+func TrapV2PDU(reqID int32, trapOID snmpwire.OID, extra ...snmpwire.VarBind) snmpwire.PDU {
+	vbs := []snmpwire.VarBind{
+		{Name: snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 3, 0}, Value: snmpwire.TimeTicksVal(1)},
+		{Name: snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0}, Value: snmpwire.ObjectIdentifier(trapOID)},
+	}
+	vbs = append(vbs, extra...)
+	return snmpwire.PDU{Type: snmpwire.PDUTrapV2, RequestID: reqID, VarBinds: vbs}
+}
+
+// Send writes req to dst and does not wait for a reply.
+func Send(dst string, req []byte) error {
+	c, err := net.Dial("udp", dst)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	_, err = c.Write(req)
+	return err
+}
+
+// MustSend fails the test on send error.
+func MustSend(t testing.TB, dst string, req []byte) {
+	t.Helper()
+	if err := Send(dst, req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// MustEncodeInform fails the test on encode error.
+func MustEncodeInform(t testing.TB, community string, reqID int32, trapOID snmpwire.OID) []byte {
+	t.Helper()
+	b, err := EncodeInform(community, reqID, trapOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// MustEncodeTrapV2 fails the test on encode error.
+func MustEncodeTrapV2(t testing.TB, community string, reqID int32, trapOID snmpwire.OID) []byte {
+	t.Helper()
+	b, err := EncodeTrapV2(community, reqID, trapOID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // MustExchange fails the test if the agent does not answer.
 func MustExchange(t testing.TB, dst string, req []byte, timeout time.Duration) snmpwire.Message {
 	t.Helper()
