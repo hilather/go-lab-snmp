@@ -64,9 +64,10 @@ type App struct {
 	trapOverride  string
 	mgmtOverride  string
 
-	snmpRebind func(addr string) error
-	trapRebind func(addr string) error
-	httpRebind func(addr string) error
+	snmpRebind    func(addr string) error
+	trapRebind    func(addr string) error
+	httpRebind    func(addr string) error
+	dataPlaneSync func(desired DesiredListeners) error
 
 	metrics *observability.Registry
 	logger  *observability.Logger
@@ -219,6 +220,23 @@ func (s *App) Traps() *store.TrapRing {
 
 // Close is a no-op placeholder for Boot callers.
 func (s *App) Close() {}
+
+// DesiredListeners is the data-plane bind set serve and Reset pass to Sync.
+// An empty address means that listener is off.
+type DesiredListeners struct {
+	AgentUDP, TrapUDP   string
+	AgentTCP, TrapTCP   string
+	AgentDTLS, TrapDTLS string
+}
+
+// SetDataPlaneSync installs the bind-all-new hook. fn must bind from
+// desired and must not re-read Active().
+func (s *App) SetDataPlaneSync(fn func(desired DesiredListeners) error) {
+	if s == nil {
+		return
+	}
+	s.dataPlaneSync = fn
+}
 
 // SetSNMPRebind installs the bind-new-first hook for the agent listener.
 func (s *App) SetSNMPRebind(fn func(addr string) error) {

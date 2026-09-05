@@ -174,5 +174,6 @@ as SNMP SET and is not an apply verb. Overlay does not change revision;
 `storeGeneration` does.
 
 Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
-swap snapshot, increment `storeGeneration`. Never writes the file.
-CLI listen flags still win after Reset.
+rebind UDP agent and trap sockets (bind-new-first; empty address stops
+that listener), swap snapshot, increment `storeGeneration`. Never writes
+the file. CLI listen flags still win after Reset.

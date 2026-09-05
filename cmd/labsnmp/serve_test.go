@@ -520,6 +520,143 @@ func TestServeUIDisabledIs404(t *testing.T) {
 	}
 }
 
+func TestResetMovesAgentPacketConn(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	agent1 := freeUDPAddr(t)
+	agent2 := freeUDPAddr(t)
+	trap := freeUDPAddr(t)
+	mgmtLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgmt := mgmtLn.Addr().String()
+	_ = mgmtLn.Close()
+
+	cfg := writeBootstrap(t, func(body string) string {
+		body = strings.Replace(body, `address: ":161"`, `address: "`+agent1+`"`, 1)
+		body = strings.Replace(body, `address: ":162"`, `address: "`+trap+`"`, 1)
+		return body
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pr, pw := io.Pipe()
+	errc := make(chan int, 1)
+	go func() {
+		errc <- serveWithContext(ctx, []string{
+			"--config", cfg,
+			"--management-listen", mgmt,
+		}, pw, io.Discard)
+		_ = pw.Close()
+	}()
+	lines := make(chan string, 16)
+	go func() {
+		br := bufio.NewReader(pr)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var snmpListen, mgmtListen string
+	deadline := time.After(5 * time.Second)
+	for snmpListen == "" || mgmtListen == "" {
+		select {
+		case line := <-lines:
+			if strings.HasPrefix(line, "labsnmp snmp listen=") {
+				snmpListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp snmp listen="))
+			}
+			if strings.HasPrefix(line, "labsnmp management listen=") {
+				mgmtListen = strings.TrimSpace(strings.TrimPrefix(line, "labsnmp management listen="))
+			}
+		case <-deadline:
+			t.Fatal("missing snmp/management listen line")
+		}
+	}
+	if snmpListen != agent1 {
+		t.Fatalf("initial listen %s want %s", snmpListen, agent1)
+	}
+
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
+	m := snmptest.MustExchange(t, agent1, req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("before reset %+v", p)
+	}
+
+	body, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten := strings.Replace(string(body), `address: "`+agent1+`"`, `address: "`+agent2+`"`, 1)
+	if rewritten == string(body) {
+		t.Fatal("rewrite agent.address")
+	}
+	if err := os.WriteFile(cfg, []byte(rewritten), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, "http://"+mgmtListen+"/v1/state:reset", strings.NewReader(`{"reason":"rebind"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer abcdefghijklmnopqrstuvwxyz123456")
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reset %d %s", resp.StatusCode, b)
+	}
+
+	m = snmptest.MustExchange(t, agent2, req, 2*time.Second)
+	p = m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("after reset %+v", p)
+	}
+	hold, err := net.ListenPacket("udp", agent1)
+	if err != nil {
+		t.Fatalf("old PacketConn must have moved: %v", err)
+	}
+	_ = hold.Close()
+
+	cancel()
+	select {
+	case code := <-errc:
+		if code != 0 {
+			t.Fatalf("serve exit %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not exit")
+	}
+}
+
+func writeBootstrap(t *testing.T, mutate func(string) string) string {
+	t.Helper()
+	root := repoRoot(t)
+	src, err := os.ReadFile(filepath.Join(root, "testdata", "config", "valid", "full.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := filepath.Join(root, "testdata", "secrets") + string(os.PathSeparator)
+	body := strings.ReplaceAll(string(src), "testdata/secrets/", secrets)
+	if mutate != nil {
+		body = mutate(body)
+	}
+	cfg := filepath.Join(t.TempDir(), "labsnmp.yaml")
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
 func serveWithUI(t *testing.T, uiEnabled bool) string {
 	t.Helper()
 	root := repoRoot(t)

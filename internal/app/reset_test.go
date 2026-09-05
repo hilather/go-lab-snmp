@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -118,23 +119,116 @@ func TestResetNeverWritesBootstrap(t *testing.T) {
 }
 
 func TestResetFlagsStillWin(t *testing.T) {
-	svc, snap := mustBoot(t)
+	svc, _ := mustBoot(t)
 	svc.snmpOverride = "127.0.0.1:1161"
-	got := ""
-	svc.SetSNMPRebind(func(addr string) error {
-		got = addr
+	var got DesiredListeners
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
 		return nil
 	})
 	_, err := svc.Reset(context.Background(), actor(), ResetIn{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "127.0.0.1:1161" {
-		// Unchanged listen relative to override: rebind only when address changes.
-		_ = snap
+	if got.AgentUDP != "127.0.0.1:1161" {
+		t.Fatalf("flags still win: %+v", got)
 	}
 	if effectiveSNMP(svc.snmpOverride, svc.Active().AgentAddress, svc.Active().AgentEnabled) != "127.0.0.1:1161" {
 		t.Fatal("flags still win after Reset")
+	}
+}
+
+func TestResetDataPlaneSyncFromNextBeforeSwap(t *testing.T) {
+	path := copyFull(t)
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := svc.Active().AgentAddress
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten := strings.Replace(string(body), `address: ":161"`, `address: "127.0.0.1:1161"`, 1)
+	if rewritten == string(body) {
+		t.Fatal("fixture agent.address")
+	}
+	if err := os.WriteFile(path, []byte(rewritten), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var got DesiredListeners
+	var activeDuring string
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		activeDuring = svc.Active().AgentAddress
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "rebind"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentUDP != "127.0.0.1:1161" {
+		t.Fatalf("desired from next: %+v", got)
+	}
+	if activeDuring != old {
+		t.Fatalf("hook must run before Swap: active=%s old=%s", activeDuring, old)
+	}
+	if svc.Active().AgentAddress != "127.0.0.1:1161" {
+		t.Fatalf("after Swap %s", svc.Active().AgentAddress)
+	}
+}
+
+func TestResetEmptyDesiredUDPStops(t *testing.T) {
+	path := copyFull(t)
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rewritten := strings.Replace(string(body),
+		"    traps:\n      enabled: true\n      address: \":162\"",
+		"    traps:\n      enabled: false\n      address: \":162\"",
+		1)
+	if rewritten == string(body) {
+		t.Fatal("fixture traps.enabled")
+	}
+	if err := os.WriteFile(path, []byte(rewritten), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var got DesiredListeners
+	called := false
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		called = true
+		got = desired
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{}); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("empty trap UDP must still call Sync")
+	}
+	if got.TrapUDP != "" {
+		t.Fatalf("empty desired trap: %+v", got)
+	}
+}
+
+func TestResetDataPlaneSyncErrorKeepsSnapshot(t *testing.T) {
+	svc, snap := mustBoot(t)
+	rev := snap.Revision
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		return errors.New("bind failed")
+	})
+	_, err := svc.Reset(context.Background(), actor(), ResetIn{})
+	if err == nil {
+		t.Fatal("expected bind error")
+	}
+	if svc.Active().Revision != rev {
+		t.Fatal("failed Sync must leave the snapshot unchanged")
 	}
 }
 

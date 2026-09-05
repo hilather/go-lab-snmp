@@ -62,14 +62,21 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	newTrap := effectiveTrap(s.trapOverride, next.TrapAddress, next.TrapsEnabled)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
-	if s.snmpRebind != nil && newSNMP != "" && newSNMP != oldSNMP {
-		if err := s.snmpRebind(newSNMP); err != nil {
+	desired := DesiredListeners{AgentUDP: newSNMP, TrapUDP: newTrap}
+	if s.dataPlaneSync != nil {
+		if err := s.dataPlaneSync(desired); err != nil {
 			return nil, nil, asDomain(err)
 		}
-	}
-	if s.trapRebind != nil && newTrap != oldTrap {
-		if err := s.trapRebind(newTrap); err != nil {
-			return nil, nil, asDomain(err)
+	} else {
+		if s.snmpRebind != nil && newSNMP != oldSNMP {
+			if err := s.snmpRebind(newSNMP); err != nil {
+				return nil, nil, asDomain(err)
+			}
+		}
+		if s.trapRebind != nil && newTrap != oldTrap {
+			if err := s.trapRebind(newTrap); err != nil {
+				return nil, nil, asDomain(err)
+			}
 		}
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
