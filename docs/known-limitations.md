@@ -25,5 +25,4 @@ fragmentation; 8192-byte inbound buffer).
 - Single replica. Memory store only. Overlay and trap inbox wipe on
   reset/restart.
 - No OAuth PRM.
-- linux/arm64 is not in this tag.
 - Integrator pin in mcp-integration-lab is out of band.

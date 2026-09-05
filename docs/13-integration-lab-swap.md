@@ -48,11 +48,11 @@ Do not reuse a `snmpd` compose name.
 ```
 URL:  https://github.com/hilather/go-lab-snmp
 Dest: third_party/go-lab-snmp
-Ref:  v1.0.0
+Ref:  v1.1.0
 ```
 
-The integrator pin is out of band. Ref stays the last GA tag until
-v1.1.0 is tagged. Do not edit `third_party/` in place.
+The integrator pin is out of band. Ref is the last GA tag. Do not
+edit `third_party/` in place.
 
 ## Locked ports
 

@@ -21,11 +21,11 @@ This is laboratory software. It is not a production SNMP agent.
 
 ## Status
 
-**1.0.0** shipped. v1.1 residual increment: TLS-001 (RFC 3430 TCP +
+**1.1.0** notes live in `docs/releases/v1.1.0.md`. TLS-001 (RFC 3430 TCP +
 DTLS 1.2 record layer) is no longer deferred; TLSTM/TSM is not
 implemented. Scratch image UID `65532:65532`. `make test-container`
 smokes `:1161`/`:1162` with `cap_drop: ALL`. Operator SPA Mira
-checklist is signed off. Tag-gate is `docs/releases/v1.0.0.md`; do
+checklist is signed off. Tag-gate is `docs/releases/v1.1.0.md`; do
 not git tag unless required CI is green. Read `START-HERE.md`, then
 `AGENTS.md`.
 

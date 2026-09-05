@@ -39,6 +39,7 @@ var RequiredRootDocs = []string{
 	"docs/implementation-design.md",
 	"docs/known-limitations.md",
 	"docs/releases/v1.0.0.md",
+	"docs/releases/v1.1.0.md",
 	"docs/adr/0001-use-go.md",
 	"docs/adr/0002-first-party-snmpwire.md",
 	"docs/adr/0003-ephemeral-state-and-gitops.md",

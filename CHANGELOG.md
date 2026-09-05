@@ -6,6 +6,26 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+
+### Fixed
+
+- None.
+
+### Removed
+
+- None.
+
+## [1.1.0] - 2026-09-05
+
+Notes: [docs/releases/v1.1.0.md](docs/releases/v1.1.0.md). TLS-001 (RFC 3430 TCP + DTLS 1.2 record layer) is no longer deferred.
+
+### Added
+
 - Agent RFC 3430 TCP and DTLS 1.2 record-layer listeners
   (`internal/snmpagent`). pion/dtls v3.1.8 with AEAD cipher suites,
   live CIDR admission, and BER TCP framing. TCP-only (UDP off) is
@@ -40,6 +60,7 @@ All notable user-visible and operator-visible changes are recorded here.
   (`linux/amd64`, `linux/arm64`). CI unit jobs stay amd64; arm64 is
   publish-only. `latest` remains non-prerelease tags only. The digest
   of the manifest list is the pin.
+- Release notes `docs/releases/v1.1.0.md` (GA-110).
 
 ### Changed
 
@@ -50,8 +71,7 @@ All notable user-visible and operator-visible changes are recorded here.
   residual). Catalog `tls_unsupported` is retained for TLS-over-TCP.
 - D12, docs/08 threat table, labinfo `tls` note, and README match
   v1.1: TCP/DTLS record layer is no longer deferred; TLSTM/TSM and
-  TLS-over-TCP remain residual. Integrator example Ref stays
-  `v1.0.0` until the GA tag.
+  TLS-over-TCP remain residual. Integrator example Ref is `v1.1.0`.
 - Lab overlay (`examples/labsnmp.yaml`) keeps `tcp.enabled` /
   `dtls.enabled` false. v1.1 can enable TCP/DTLS with file-ref
   certs; this BOM does not. Integrator pin remains out of band.

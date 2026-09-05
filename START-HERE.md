@@ -6,7 +6,7 @@ the community or v3 user.
 
 If you want to **implement** it, read `AGENTS.md` then take a wave
 from `tasks/00-program-board.md`. Do not invent capability IDs.
-1.0.0 notes live in `docs/releases/v1.0.0.md`. TLS-001 (RFC 3430 TCP
+1.1.0 notes live in `docs/releases/v1.1.0.md`. TLS-001 (RFC 3430 TCP
 + DTLS 1.2 record layer) is no longer deferred; TLSTM/TSM is not
 implemented.
 
