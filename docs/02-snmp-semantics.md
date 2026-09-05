@@ -12,8 +12,8 @@ LabSNMP speaks SNMP on the wire. It does not speak net-snmp `snmpd.conf`, AgentX
 |---|---|---|
 | UDP | 161 | Agent — Response to Get/GetNext/GetBulk/Set |
 | UDP | 162 | Sink — receive Trap v1, SNMPv2-Trap, Inform |
-| TCP RFC 3430 | 161/tcp, 162/tcp (RFC names; not bound in this increment) | BER-length framing: one SNMP SEQUENCE (identifier+length, **not** a 32-bit prefix). `snmpwire.ReadTCP` / `WriteTCP`. |
-| DTLS 1.2 record layer | 10161/udp, 10162/udp (IANA names; not bound in this increment) | Inner PDU is community or USM. TLSTM/TSM is not implemented. Not RFC 6353. |
+| TCP RFC 3430 | 161/tcp, 162/tcp (RFC names; agent TCP binds in 1.1) | BER-length framing: one SNMP SEQUENCE (identifier+length, **not** a 32-bit prefix). `snmpwire.ReadTCP` / `WriteTCP`. |
+| DTLS 1.2 record layer | 10161/udp, 10162/udp (IANA names; agent DTLS binds in 1.1) | Inner PDU is community or USM. TLSTM/TSM is not implemented. Not RFC 6353. |
 
 RFC 3430 §2.1: each TCP message is one BER-encoded SNMP message. A framed Get starts with `0x30`. On loss of framing (truncated, indefinite length, ASN.1 parse error) `ReadTCP` returns an error so the server can close the connection. 1.1 does not pipeline requests on one TCP connection. `TCP_NODELAY` is an agent-listener concern, not `snmpwire`. Default `maxMessageBytes` (64KiB) already satisfies RFC 3430 §2.2 ≥8192.
 

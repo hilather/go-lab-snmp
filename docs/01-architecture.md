@@ -34,7 +34,8 @@ QA needs an SNMP endpoint that is version-accurate, identity-accurate, and map-a
 ## Invariants
 
 1. **Two planes, one process.** Agent and trap goroutines never import control/web/http.
-2. **Never forward, never originate.** No Dial. INFORM ack is `WriteTo` source.
+2. **Never forward, never originate.** No Dial. INFORM ack is `WriteTo`
+   on UDP or `Write`/`WriteTCP` on the accepted TCP/DTLS connection.
 3. **Never write the bootstrap file.**
 4. **YAML KnownFields fail-closed.** camelCase wire names.
 5. **Secrets file-ref.** v3 keys never inline. Management token ≥32 bytes.
@@ -49,12 +50,15 @@ QA needs an SNMP endpoint that is version-accurate, identity-accurate, and map-a
 
 ```text
 SUT UDP/161 --> snmpagent --> snmpwire.Decode --> usm/community
+SUT TCP/161 --> snmpagent ReadTCP (RFC 3430 BER length)
+SUT DTLS/10161 --> snmpagent ListenWithOptions (DTLS 1.2 record layer)
                      |                |
                      |                v
                      |          view + mibtree.Get/GetNext/GetBulk/Set
                      |                |
                      |                v
                      |          snmpwire.Encode Response
+                     |          replySink: WriteTo / WriteTCP / Write
                      |
 SUT UDP/162 --> snmpsink --> decode --> store.Insert
                      |                    (INFORM -> WriteTo source)
@@ -72,7 +76,7 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 | `internal/snmpwire` | BER + SNMPv1/v2c/v3 message + PDUs |
 | `internal/usm` | v3 USM auth/priv, engine ID, time window |
 | `internal/mibtree` | lexicographic OID tree per map |
-| `internal/snmpagent` | UDP 161 listen, dispatch |
+| `internal/snmpagent` | UDP 161, RFC 3430 TCP, DTLS 1.2 record layer; dispatch |
 | `internal/snmpsink` | UDP 162 listen, INFORM ack, insert |
 | `internal/store` | trap ring + SET overlay |
 | `internal/compiler` | Normalize + Validate + compile Snapshot |
@@ -102,7 +106,12 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 
 ## Listen
 
-- `net.ListenPacket("udp", addr)` for agent and sink
+- `net.ListenPacket("udp", addr)` for agent and sink UDP
+- `net.Listen("tcp", addr)` + RFC 3430 BER `ReadTCP`/`WriteTCP` for agent TCP
+- pion/dtls v3 `ListenWithOptions` for agent DTLS 1.2 (AEAD suites only;
+  live CIDR `WithOnConnectionAttempt`; `HandshakeContext` error closes
+  without handle). Inner PDU is community or USM; TLSTM/TSM is not
+  implemented. Never `dtls.Dial` in production.
 - Client IP `netip.Addr.Unmap()` before CIDR admission
 - UID 65532 vs :161/:162 needs `CAP_NET_BIND_SERVICE` on integrator compose
 - Local tests bind `:1161` / `:1162` with cap_drop ALL

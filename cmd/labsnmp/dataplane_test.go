@@ -143,3 +143,162 @@ func freeUDPAddr(t *testing.T) string {
 	_ = pc.Close()
 	return addr
 }
+
+func freeTCPAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+	return addr
+}
+
+func TestDataPlaneSyncTCP(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/full.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	agent, err := snmpagent.New(snmpagent.Config{
+		Store:   svc.Snapshots(),
+		Overlay: svc.Overlay(),
+		Queries: svc.Queries(),
+		Clock:   snap.Clock,
+		Metrics: observability.NewRegistry(),
+		BaseDir: repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{agent: agent}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = agent.Shutdown(ctx)
+	})
+	tcp := freeTCPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{AgentTCP: tcp}); err != nil {
+		t.Fatal(err)
+	}
+	if agent.Bound() {
+		t.Fatal("TCP-only Sync must not bind UDP")
+	}
+	if !agent.BoundTCP() {
+		t.Fatal("TCP listener not bound")
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
+	c, err := net.DialTimeout("tcp", agent.TCPAddr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snmptest.MustDecode(t, raw)
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestDataPlaneSyncTCPRollback(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/full.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	agent, err := snmpagent.New(snmpagent.Config{
+		Store:   svc.Snapshots(),
+		Overlay: svc.Overlay(),
+		Queries: svc.Queries(),
+		Clock:   snap.Clock,
+		BaseDir: repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{agent: agent}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = agent.Shutdown(ctx)
+	})
+	tcp1 := freeTCPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{AgentTCP: tcp1}); err != nil {
+		t.Fatal(err)
+	}
+	hold, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Close() }()
+	if err := dp.Sync(app.DesiredListeners{AgentTCP: hold.Addr().String()}); err == nil {
+		t.Fatal("expected tcp bind failure")
+	}
+	if !agent.BoundTCP() {
+		t.Fatal("old TCP listener must keep serving")
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0})
+	c, err := net.DialTimeout("tcp", agent.TCPAddr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snmptest.MustDecode(t, raw)
+	if p := m.RequestPDU(); p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("old TCP must keep serving: %+v", p)
+	}
+}
+
+func TestDataPlaneSyncDTLS(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/dtls-enabled.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	agent, err := snmpagent.New(snmpagent.Config{
+		Store:   svc.Snapshots(),
+		Overlay: svc.Overlay(),
+		Queries: svc.Queries(),
+		Clock:   snap.Clock,
+		BaseDir: repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{agent: agent}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = agent.Shutdown(ctx)
+	})
+	dtlsAddr := freeUDPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{AgentDTLS: dtlsAddr}); err != nil {
+		t.Fatal(err)
+	}
+	if !agent.BoundDTLS() {
+		t.Fatal("DTLS listener not bound")
+	}
+}

@@ -249,7 +249,7 @@ func validateDTLSListeners(l *model.ListenersSpec, baseDir string, vs *[]domaine
 }
 
 func validateTLSKeyPair(certFile, keyFile, baseDir string, vs *[]domainerr.FieldViolation) {
-	certPath, err := resolveFileRef(certFile, baseDir)
+	certPath, err := ResolveFileRef(certFile, baseDir)
 	if err != nil {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    "spec.listeners.dtls.certFile",
@@ -258,7 +258,7 @@ func validateTLSKeyPair(certFile, keyFile, baseDir string, vs *[]domainerr.Field
 		})
 		return
 	}
-	keyPath, err := resolveFileRef(keyFile, baseDir)
+	keyPath, err := ResolveFileRef(keyFile, baseDir)
 	if err != nil {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    "spec.listeners.dtls.keyFile",
@@ -277,7 +277,7 @@ func validateTLSKeyPair(certFile, keyFile, baseDir string, vs *[]domainerr.Field
 }
 
 func validateClientCAFile(path, baseDir string, vs *[]domainerr.FieldViolation) {
-	resolved, err := resolveFileRef(path, baseDir)
+	resolved, err := ResolveFileRef(path, baseDir)
 	if err != nil {
 		*vs = append(*vs, domainerr.FieldViolation{
 			Path:    "spec.listeners.dtls.clientCAFile",

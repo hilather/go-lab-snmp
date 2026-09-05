@@ -10,7 +10,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/snmpsink"
 )
 
-// dataPlane owns the UDP agent and trap sockets. Sync binds from desired
+// dataPlane owns the agent and trap sockets. Sync binds from desired
 // and must not re-read app.Active().
 type dataPlane struct {
 	mu    sync.Mutex
@@ -28,9 +28,10 @@ func (d *dataPlane) last() app.DesiredListeners {
 	return d.bound
 }
 
-// Sync binds every new UDP address before closing any old socket.
+// Sync binds every new address before closing any old socket.
 // A failed new bind rolls back sockets opened in this call; the previous
-// listeners keep serving. Empty desired UDP address stops that listener.
+// listeners keep serving. Empty desired address stops that listener.
+// Trap TCP/DTLS binds are not in this increment.
 func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	if d == nil {
 		return fmt.Errorf("dataplane: nil")
@@ -39,6 +40,7 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	defer d.mu.Unlock()
 
 	var newAgent, newTrap net.PacketConn
+	var newTCP, newDTLS net.Listener
 	rollback := func() {
 		if newAgent != nil {
 			_ = newAgent.Close()
@@ -48,9 +50,17 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 			_ = newTrap.Close()
 			newTrap = nil
 		}
+		if newTCP != nil {
+			_ = newTCP.Close()
+			newTCP = nil
+		}
+		if newDTLS != nil {
+			_ = newDTLS.Close()
+			newDTLS = nil
+		}
 	}
 
-	if desired.AgentUDP != "" && d.agent == nil {
+	if (desired.AgentUDP != "" || desired.AgentTCP != "" || desired.AgentDTLS != "") && d.agent == nil {
 		return fmt.Errorf("dataplane: agent server missing")
 	}
 	if desired.TrapUDP != "" && d.sink == nil {
@@ -76,6 +86,26 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 		newTrap = pc
 	}
 
+	agentTCPBound := d.agent != nil && d.agent.BoundTCP()
+	if desired.AgentTCP != "" && (desired.AgentTCP != d.bound.AgentTCP || !agentTCPBound) {
+		ln, err := net.Listen("tcp", desired.AgentTCP)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpagent: tcp listen: %w", err)
+		}
+		newTCP = ln
+	}
+
+	agentDTLSBound := d.agent != nil && d.agent.BoundDTLS()
+	if desired.AgentDTLS != "" && (desired.AgentDTLS != d.bound.AgentDTLS || !agentDTLSBound) {
+		ln, err := d.agent.ListenDTLS(desired.AgentDTLS)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpagent: dtls listen: %w", err)
+		}
+		newDTLS = ln
+	}
+
 	if d.agent != nil {
 		switch {
 		case desired.AgentUDP == "":
@@ -85,6 +115,30 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 			}
 		case newAgent != nil:
 			old := d.agent.SwapUDP(newAgent)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.AgentTCP == "":
+			old := d.agent.SwapTCP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTCP != nil:
+			old := d.agent.SwapTCP(newTCP)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.AgentDTLS == "":
+			old := d.agent.SwapDTLS(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newDTLS != nil:
+			old := d.agent.SwapDTLS(newDTLS)
 			if old != nil {
 				_ = old.Close()
 			}

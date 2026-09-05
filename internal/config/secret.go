@@ -8,14 +8,15 @@ import (
 )
 
 func readSecretFile(path, baseDir string) ([]byte, error) {
-	resolved, err := resolveFileRef(path, baseDir)
+	resolved, err := ResolveFileRef(path, baseDir)
 	if err != nil {
 		return nil, err
 	}
 	return os.ReadFile(resolved)
 }
 
-func resolveFileRef(path, baseDir string) (string, error) {
+// ResolveFileRef tries path in the working directory, then joined with baseDir.
+func ResolveFileRef(path, baseDir string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", os.ErrNotExist

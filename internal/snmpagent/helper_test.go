@@ -3,10 +3,13 @@ package snmpagent
 import (
 	"bytes"
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/pion/dtls/v3"
 
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
@@ -64,6 +67,30 @@ func loadYAML(t *testing.T, yaml string, clk Clock) *snapshot.Snapshot {
 	return snap
 }
 
+func newUnstarted(t *testing.T, snap *snapshot.Snapshot) *Server {
+	t.Helper()
+	st := snapshot.NewStore()
+	st.InstallBootstrap(snap)
+	s, err := New(Config{
+		Store:   st,
+		Overlay: store.NewOverlay(),
+		Queries: store.NewQueryRing(store.DefaultQueryRing),
+		Clock:   snap.Clock,
+		Metrics: observability.NewRegistry(),
+		Logger:  observability.NewLogger(&bytes.Buffer{}, observability.LevelInfo),
+		BaseDir: repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+	return s
+}
+
 func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 	t.Helper()
 	st := snapshot.NewStore()
@@ -76,6 +103,7 @@ func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 		Clock:   snap.Clock,
 		Metrics: observability.NewRegistry(),
 		Logger:  observability.NewLogger(&bytes.Buffer{}, observability.LevelInfo),
+		BaseDir: repoRoot(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +116,34 @@ func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 		defer cancel()
 		_ = s.Shutdown(ctx)
 	})
+	return s
+}
+
+func startTCPAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
+	t.Helper()
+	s := newUnstarted(t, snap)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := s.SwapTCP(ln)
+	if old != nil {
+		_ = old.Close()
+	}
+	return s
+}
+
+func startDTLSAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
+	t.Helper()
+	s := newUnstarted(t, snap)
+	ln, err := s.ListenDTLS("127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := s.SwapDTLS(ln)
+	if old != nil {
+		_ = old.Close()
+	}
 	return s
 }
 
@@ -104,6 +160,64 @@ func readTrimmed(path, baseDir string) ([]byte, error) {
 
 func dst(s *Server) string {
 	return s.Addr().String()
+}
+
+func dstTCP(s *Server) string {
+	return s.TCPAddr().String()
+}
+
+func dstDTLS(s *Server) string {
+	return s.DTLSAddr().String()
+}
+
+func tcpExchange(t *testing.T, addr string, req []byte, timeout time.Duration) snmpwire.Message {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(timeout))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snmptest.MustDecode(t, raw)
+}
+
+func dtlsExchange(t *testing.T, addr string, req []byte, timeout time.Duration) snmpwire.Message {
+	t.Helper()
+	raddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := dtls.DialWithOptions("udp", raddr,
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithCipherSuites(dtlsAllowlist...),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := conn.HandshakeContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64<<10)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snmptest.MustDecode(t, buf[:n])
 }
 
 func oid(arcs ...uint32) snmpwire.OID {

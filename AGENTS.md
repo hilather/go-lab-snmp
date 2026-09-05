@@ -89,6 +89,8 @@ Normalized (strip `-` `_`, lower-case) prefixes:
 - `gopkg.in/yaml.v3`
 - `github.com/modelcontextprotocol/go-sdk v1.7.0`
 - `github.com/oklog/ulid/v2`
+- `github.com/pion/dtls/v3` (v3.1.8 or newer patch `govulncheck`
+  accepts; inbound `ListenWithOptions` only)
 
 Stdlib crypto for USM. New deps need a PR justification and
 Apache-2.0 license check.
