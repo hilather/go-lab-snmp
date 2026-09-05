@@ -48,6 +48,9 @@ All notable user-visible and operator-visible changes are recorded here.
   v1.1: TCP/DTLS record layer is no longer deferred; TLSTM/TSM and
   TLS-over-TCP remain residual. Integrator example Ref stays
   `v1.0.0` until the GA tag.
+- Lab overlay (`examples/labsnmp.yaml`) keeps `tcp.enabled` /
+  `dtls.enabled` false. v1.1 can enable TCP/DTLS with file-ref
+  certs; this BOM does not. Integrator pin remains out of band.
 
 ### Fixed
 

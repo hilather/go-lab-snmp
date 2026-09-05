@@ -151,7 +151,10 @@ Connection endpoints:
 
 Parameters: DTLS record layer on IANA 10161/10162; inner PDU is
 community or USM; TLSTM/TSM is not implemented. RFC 6353
-TLS-over-TCP is residual. Maps `public-if` / `private-if`,
+TLS-over-TCP is residual. `connection.parameters.tls` is that
+capability note; the lab overlay keeps `tcp.enabled` /
+`dtls.enabled` false (v1.1 can enable TCP/DTLS with file-ref
+certs; this BOM does not). Maps `public-if` / `private-if`,
 auth none on v1/v2c data plane, v3 authPriv SHA-256/AES-128.
 
 `stageLabinfoCreds` must copy `secrets/labsnmp-token` (and the
