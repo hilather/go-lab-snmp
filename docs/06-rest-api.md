@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Control Plane
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 Frozen routes live in `05-control-plane-and-parity.md`.
 `application/problem+json` (RFC 9457). Bearer or session+CSRF.
@@ -36,5 +36,7 @@ decision, error status) for the operator UI. No payloads of USM
 keys or community strings.
 
 `--management-listen` default off. YAML `management.address` does
-not bind unless the flag is an address. `GET /` is 404 problem+json
-until UI-001 (and while `ui.enabled: false`).
+not bind unless the flag is an address. `GET /` is HTML when
+`ui.enabled` is true. `ui.enabled: false` (or the UI handler unset)
+is 404 `application/problem+json`. REST `/v1` and MCP `/mcp` are
+unchanged.

@@ -23,6 +23,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
 	"github.com/hilather/go-lab-snmp/internal/snmpsink"
 	"github.com/hilather/go-lab-snmp/internal/store"
+	"github.com/hilather/go-lab-snmp/internal/web"
 )
 
 type serveFlags struct {
@@ -233,6 +234,17 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 					return false
 				}
 				return true
+			},
+			UI: web.NewHandler(nil),
+			UIEnabled: func() bool {
+				if !web.UIEnabled {
+					return false
+				}
+				live := svc.Active()
+				if live == nil || live.Canonical == nil {
+					return false
+				}
+				return live.Canonical.Spec.UI.Enabled
 			},
 		})
 		if err != nil {

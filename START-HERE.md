@@ -34,4 +34,9 @@ snmpwalk -v2c -c public 127.0.0.1:1161 1.3.6.1.2.1.1
 snmptrap -v2c -c public 127.0.0.1:1162 '' 1.3.6.1.6.3.1.1.5.1
 ```
 
-`--management-listen` defaults **off**.
+`--management-listen` defaults **off**. With `--management-listen=:8088`
+and `spec.ui.enabled: true`, `GET /` serves the operator SPA.
+
+```
+make web-install web-test web-build
+```

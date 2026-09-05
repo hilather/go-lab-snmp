@@ -4,6 +4,14 @@
 
 ### Added
 
+- Operator SPA (Vite + React 19) over REST `/v1`: login, overview, maps
+  (tree + `oids:set` overlay), communities/users (secrets never shown),
+  trap inbox (no send-trap), queries, plan/apply, gated reset, audit,
+  features, status. Cookie `labsnmp_session` + CSRF `X-LabSNMP-CSRF` in
+  process memory; Vitest `assertNoTokenStorage`. `ui.enabled: false` is
+  404 `application/problem+json`. Committed `internal/web/dist` is a real
+  Vite tree. Mira checklist in docs/12 (UI-001; not GA-complete until
+  Mira review).
 - Management bearer from `spec.auth.tokens[].secretFile` (≥32 bytes, SHA-256 digest compare), cookie `labsnmp_session` (HttpOnly SameSite=Lax Path=/), CSRF `X-LabSNMP-CSRF` in process memory, exact-match Origins, and an in-memory audit ring. Every `/v1` route except health (and metrics if `publicPath`) requires bearer or session. Users list keeps `secretFile` paths and never file contents (SEC-001).
 - REST `/v1` adapter (`internal/control/rest`) over `app.Service` plus the frozen capability table (`internal/capabilities`). Every PARITY_REQUIRED route, unauthenticated health live/ready, `application/problem+json` (`urn:labsnmp:error:<code>`), K20 features catalog, generated `api/openapi/v1.json` and `api/capabilities/v1.json`. `--management-listen` binds HTTP (default still off).
 - Snapshot compile and atomic swap (`internal/compiler`, `internal/snapshot`) plus HTTP-less `internal/app` plan/apply/reset. Closed apply ops from docs/04, `expectedRevision` + idempotency, `oids:set` sharing the SNMP SET overlay, and Reset that rereads bootstrap / drops overlay / wipes traps+queries without writing the file (APP-001).

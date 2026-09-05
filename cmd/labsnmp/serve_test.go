@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -330,4 +333,107 @@ func TestTrapListenAddressStillFreeWhenOff(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("serve did not exit")
 	}
+}
+
+func TestServeUIEnabledIsHTML(t *testing.T) {
+	addr := serveWithUI(t, true)
+	resp, err := http.Get("http://" + addr + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / code=%d body=%s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("content-type=%q", ct)
+	}
+	if !strings.Contains(string(body), "LabSNMP") {
+		t.Fatalf("body=%s", body)
+	}
+}
+
+func TestServeUIDisabledIs404(t *testing.T) {
+	addr := serveWithUI(t, false)
+	resp, err := http.Get("http://" + addr + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET / code=%d body=%s", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "problem+json") {
+		t.Fatalf("content-type=%q body=%s", ct, body)
+	}
+	if strings.Contains(string(body), "<!doctype") {
+		t.Fatalf("disabled UI served HTML: %s", body)
+	}
+}
+
+func serveWithUI(t *testing.T, uiEnabled bool) string {
+	t.Helper()
+	root := repoRoot(t)
+	t.Chdir(root)
+	src, err := os.ReadFile(filepath.Join(root, "testdata", "config", "valid", "full.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := filepath.Join(root, "testdata", "secrets") + string(os.PathSeparator)
+	body := strings.ReplaceAll(string(src), "testdata/secrets/", secrets)
+	want := "enabled: true"
+	if !uiEnabled {
+		want = "enabled: false"
+	}
+	body = strings.Replace(body, "  ui:\n    enabled: true", "  ui:\n    "+want, 1)
+	cfg := filepath.Join(t.TempDir(), "labsnmp.yaml")
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	httpLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgmtAddr := httpLn.Addr().String()
+	_ = httpLn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var stdout, stderr strings.Builder
+	errCh := make(chan int, 1)
+	go func() {
+		errCh <- serveWithContext(ctx, []string{
+			"--config", cfg,
+			"--snmp-listen", "127.0.0.1:0",
+			"--trap-listen", "127.0.0.1:0",
+			"--management-listen", mgmtAddr,
+		}, &stdout, &stderr)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		select {
+		case code := <-errCh:
+			t.Fatalf("serve exited %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		default:
+		}
+		resp, err := http.Get("http://" + mgmtAddr + "/v1/health/live")
+		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return mgmtAddr
+			}
+			last = fmt.Errorf("live status %d", resp.StatusCode)
+		} else {
+			last = err
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("management never became live: %v stdout=%q stderr=%q", last, stdout.String(), stderr.String())
+	return ""
 }

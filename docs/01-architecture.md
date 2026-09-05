@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Architecture, Data Plane
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 ## Problem
 
@@ -94,7 +94,7 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 ## Import fence
 
 - wire/agent/sink/mibtree/usm/store must not import control, web, net/http
-- production rest must not import web
+- production rest must not import web (`cmd/labsnmp/serve.go` wires `rest.Config.UI`)
 - forbidden production imports: `github.com/gosnmp/gosnmp`, `github.com/sleepinggenius2/gosmi`, `github.com/k-sone/snmpgo`
 - forbidden Dial; forbidden exec basenames `snmpd`, `snmptrapd`, `snmpget`, `snmpwalk`, `snmptrap`, `snmpinform`
 - INFORM `WriteTo` is allowed and tested
