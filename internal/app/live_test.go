@@ -7,7 +7,25 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 )
+
+func TestHealthFactsFailClosed(t *testing.T) {
+	svc, _ := mustBoot(t)
+	f := svc.HealthFacts()
+	if f.AgentBound || f.TrapBound || f.MgmtBound || f.MgmtOff || f.AgentOff || f.TrapOff {
+		t.Fatalf("default facts must not assume listeners: %+v", f)
+	}
+	if observability.Evaluate(f).Ready {
+		t.Fatal("ready without SetHealth")
+	}
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{AgentBound: true, TrapOff: true, MgmtOff: true}
+	})
+	if !observability.Evaluate(svc.HealthFacts()).Ready {
+		t.Fatal("SetHealth should make ready")
+	}
+}
 
 func TestLiveVsResetOnly(t *testing.T) {
 	svc, snap := mustBoot(t)

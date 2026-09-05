@@ -10,6 +10,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
@@ -87,7 +88,7 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance strin
 	case capabilities.AuditGet:
 		s.handleAuditGet(w, r, instance, ctx, actor, params["id"])
 	case capabilities.MetricsGet:
-		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
+		s.handleMetrics(w, r, instance)
 	default:
 		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
 	}
@@ -113,6 +114,27 @@ func (s *Server) handleCapabilities(w http.ResponseWriter, r *http.Request, inst
 		return
 	}
 	s.writeJSON(w, http.StatusOK, fromCapabilities(view))
+	_ = r
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request, instance string) {
+	if !s.publicMetrics(r.Context()) {
+		s.writeProblem(w, r, instance, domainerr.NotFound("not found"))
+		return
+	}
+	if s.metrics != nil {
+		if st, err := s.svc.Stats(r.Context(), app.Actor{ID: "probe", Class: "startup", Transport: "rest"}); err == nil && st != nil {
+			s.metrics.Set(observability.MetricStoreMessages, nil, float64(st.Traps.Messages))
+			s.metrics.Set(observability.MetricStoreBytes, nil, float64(st.Traps.Bytes))
+		}
+	}
+	w.Header().Set("Content-Type", observability.OpenMetricsContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	if s.metrics == nil {
+		_, _ = w.Write([]byte("# EOF\n"))
+		return
+	}
+	_ = s.metrics.WriteOpenMetrics(w)
 	_ = r
 }
 

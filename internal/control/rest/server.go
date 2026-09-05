@@ -16,6 +16,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 )
 
 const (
@@ -55,6 +56,8 @@ type Config struct {
 	Auth              *auth.Verifier
 	Sessions          *auth.Store
 	CookieSecure      bool
+	Metrics           *observability.Registry
+	Logger            *observability.Logger
 	UI                http.Handler
 	UIEnabled         func() bool
 	Mounts            map[string]http.Handler
@@ -71,6 +74,8 @@ type Server struct {
 	inflight chan struct{}
 	rate     *limiter
 	mounts   *http.ServeMux
+	metrics  *observability.Registry
+	logger   *observability.Logger
 
 	sec    sync.RWMutex
 	mu     sync.Mutex
@@ -117,6 +122,8 @@ func New(cfg Config) (*Server, error) {
 		inflight: make(chan struct{}, n),
 		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
 		addr:     cfg.Addr,
+		metrics:  cfg.Metrics,
+		logger:   cfg.Logger,
 	}
 	if appSvc, ok := s.svc.(*app.App); ok {
 		appSvc.OnReset(s.reloadAuth)
@@ -164,21 +171,7 @@ func (s *Server) Serve(ln net.Listener) error {
 		_ = ln.Close()
 		return errors.New("rest: server already started")
 	}
-	rh := s.cfg.ReadHeaderTimeout
-	if rh <= 0 {
-		rh = DefaultReadHeaderTimeout
-	}
-	rt := s.cfg.ReadTimeout
-	if rt <= 0 {
-		rt = DefaultReadTimeout
-	}
-	hs := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: rh,
-		ReadTimeout:       rt,
-		WriteTimeout:      s.cfg.WriteTimeout,
-		MaxHeaderBytes:    1 << 16,
-	}
+	hs := s.newHTTPServer()
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
@@ -195,7 +188,26 @@ func (s *Server) Serve(ln net.Listener) error {
 	return err
 }
 
+func (s *Server) newHTTPServer() *http.Server {
+	rh := s.cfg.ReadHeaderTimeout
+	if rh <= 0 {
+		rh = DefaultReadHeaderTimeout
+	}
+	rt := s.cfg.ReadTimeout
+	if rt <= 0 {
+		rt = DefaultReadTimeout
+	}
+	return &http.Server{
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: rh,
+		ReadTimeout:       rt,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		MaxHeaderBytes:    1 << 16,
+	}
+}
+
 // Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
+// Bound stays true on the new listener as soon as Listen succeeds (docs/09).
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
@@ -215,20 +227,20 @@ func (s *Server) Rebind(addr string) error {
 	if err != nil {
 		return err
 	}
-	old := func() *http.Server {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		hs := s.http
-		s.http = nil
-		s.closed.Store(false)
-		return hs
-	}()
+	hs := s.newHTTPServer()
+	s.mu.Lock()
+	old := s.http
+	s.http = hs
+	s.ln = ln
+	s.addr = ln.Addr().String()
+	s.closed.Store(false)
+	s.mu.Unlock()
+	go func() { _ = hs.Serve(ln) }()
 	if old != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = old.Shutdown(ctx)
 		cancel()
 	}
-	go func() { _ = s.Serve(ln) }()
 	return nil
 }
 
@@ -272,10 +284,17 @@ func (s *Server) Addr() string {
 }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	w = sw
 	reqID := requestID(r)
 	w.Header().Set(headerRequestID, reqID)
 	r.Header.Set(headerRequestID, reqID)
 	instance := requestURNPrefix + reqID
+	route := "other"
+	defer func() {
+		s.observeHTTP(route, sw.status(), start, reqID)
+	}()
 
 	if err := checkOrigin(r.Header.Get("Origin"), s.allowedOrigins()); err != nil {
 		s.writeProblem(w, r, instance, err)
@@ -305,6 +324,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, params, pathOK, methodOK := matchRoute(s.routes, r.Method, r.URL.Path)
+	if pathOK {
+		route = rt.binding.Path
+	}
 	// traps.wait is capped by spec.traps.maxWait (default 60s), not the
 	// generic management request timeout.
 	if s.timeout > 0 && !(pathOK && methodOK && rt.cap.ID == capabilities.TrapsWait) {
@@ -318,13 +340,13 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			s.writeProblem(w, r, instance, domainerr.MethodNotAllowed("method not allowed"))
 			return
 		}
-		if !isHealthCap(rt.cap) {
+		if !s.skipAuth(r.Context(), rt.cap) {
 			if err := s.rate.allow(r.RemoteAddr); err != nil {
 				s.writeProblem(w, r, instance, err)
 				return
 			}
 		}
-		skip := s.skipAuth(rt.cap)
+		skip := s.skipAuth(r.Context(), rt.cap)
 		actor, err := s.authenticate(r, skip)
 		if err != nil {
 			s.writeProblem(w, r, instance, err)
@@ -350,11 +372,11 @@ func isHealthCap(cap capabilities.Capability) bool {
 	return cap.ID == capabilities.HealthLive || cap.ID == capabilities.HealthReady
 }
 
-func (s *Server) skipAuth(cap capabilities.Capability) bool {
+func (s *Server) skipAuth(ctx context.Context, cap capabilities.Capability) bool {
 	if isHealthCap(cap) {
 		return true
 	}
-	return cap.ID == capabilities.MetricsGet && s.publicMetrics()
+	return cap.ID == capabilities.MetricsGet && s.publicMetrics(ctx)
 }
 
 func (s *Server) allowedOrigins() []string {
@@ -363,7 +385,16 @@ func (s *Server) allowedOrigins() []string {
 	return append([]string(nil), s.cfg.AllowedOrigins...)
 }
 
-func (s *Server) publicMetrics() bool {
+func (s *Server) publicMetrics(ctx context.Context) bool {
+	if s.svc != nil {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		st, err := s.svc.GetState(ctx, app.Actor{ID: "probe", Class: "startup", Transport: "rest"})
+		if err == nil && st != nil && st.Canonical != nil {
+			return st.Canonical.Spec.Observability.Metrics.PublicPath
+		}
+	}
 	s.sec.RLock()
 	defer s.sec.RUnlock()
 	return s.cfg.PublicMetrics
@@ -435,6 +466,25 @@ func (s *Server) isReady(ctx context.Context) bool {
 	return st.Ready
 }
 
+func (s *Server) observeHTTP(route string, status int, start time.Time, reqID string) {
+	if s.metrics != nil {
+		s.metrics.Inc(observability.MetricHTTPRequestsTotal, map[string]string{
+			"code":  observability.HTTPCode(status),
+			"route": observability.HTTPRoute(route),
+		}, 1)
+	}
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:      observability.EventHTTPRequest,
+			Component:  "rest",
+			RequestID:  reqID,
+			Capability: route,
+			Result:     observability.HTTPCode(status),
+			DurationMS: float64(time.Since(start).Milliseconds()),
+		})
+	}
+}
+
 func requestID(r *http.Request) string {
 	if id := r.Header.Get(headerRequestID); id != "" {
 		return id
@@ -444,4 +494,21 @@ func requestID(r *http.Request) string {
 		return "req-fallback"
 	}
 	return hex.EncodeToString(b[:])
+}
+
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(status int) {
+	w.code = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusWriter) status() int {
+	if w.code == 0 {
+		return http.StatusOK
+	}
+	return w.code
 }

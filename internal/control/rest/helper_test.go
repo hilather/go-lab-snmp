@@ -68,6 +68,7 @@ func newServerFor(t *testing.T, svc *app.App) (*Server, *app.App) {
 		Service:    svc,
 		RatePerSec: -1,
 		Auth:       auth.Static(testToken, "admin", model.RoleAdministrator),
+		Ready:      func() bool { return true },
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -17,8 +17,70 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
+
+func TestMetricsPublicPath(t *testing.T) {
+	svc := bootTestApp(t)
+	reg := observability.NewRegistry()
+	reg.Inc(observability.MetricPDUsTotal, map[string]string{"version": "v2c", "pdu": "get", "decision": "ok"}, 1)
+	s, err := New(Config{Service: svc, RatePerSec: -1, Metrics: reg, Ready: func() bool { return true }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("default publicPath false want 404, got %d", w.Code)
+	}
+
+	snap := svc.Active()
+	if _, err := svc.Apply(context.Background(), app.Actor{ID: "test", Class: "test", Transport: "rest", Scopes: model.ScopesForRole(model.RoleAdministrator)}, app.ChangeIn{
+		ExpectedRevision: snap.Revision,
+		IdempotencyKey:   "obs-public",
+		Operations: []model.Operation{{
+			Op: model.OpReplaceObservability,
+			Observability: &model.ObservabilitySpec{
+				LogLevel: model.LogLevelInfo,
+				Metrics:  model.MetricsSpec{PublicPath: true},
+			},
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("live publicPath true %d %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "openmetrics") {
+		t.Fatalf("content-type %s", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "labsnmp_pdus_total") || !strings.HasSuffix(body, "# EOF\n") {
+		t.Fatal(body)
+	}
+	if strings.Contains(body, "client_ip") {
+		t.Fatal("client IP in scrape")
+	}
+}
+
+func TestHealthReadyNotReady(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{Service: svc, RatePerSec: -1, Ready: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/health/ready", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ready %d", w.Code)
+	}
+}
 
 func TestHealthUnauthenticated(t *testing.T) {
 	s, _ := newTestServer(t)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
@@ -73,6 +74,8 @@ func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 		Overlay: store.NewOverlay(),
 		Queries: store.NewQueryRing(store.DefaultQueryRing),
 		Clock:   snap.Clock,
+		Metrics: observability.NewRegistry(),
+		Logger:  observability.NewLogger(&bytes.Buffer{}, observability.LevelInfo),
 	})
 	if err != nil {
 		t.Fatal(err)

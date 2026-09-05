@@ -10,6 +10,7 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
@@ -25,6 +26,7 @@ func (s *App) Reset(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult,
 	res, hooks, err := s.resetLocked(ctx, actor, in)
 	s.mu.Unlock()
 	if err != nil {
+		s.observeApply(err)
 		return nil, err
 	}
 	for _, fn := range hooks {
@@ -105,6 +107,14 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		Result:     audit.ResultOK,
 		Diff:       toAuditDiff(diff),
 	})
+	if s.logger != nil {
+		s.logger.Log(observability.Record{
+			Event:     observability.EventStateReset,
+			Component: "app",
+			Result:    "ok",
+		})
+	}
+	s.observeApply(nil)
 	return cloneApply(res), hooks, nil
 }
 

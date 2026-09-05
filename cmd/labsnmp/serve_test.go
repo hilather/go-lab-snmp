@@ -190,6 +190,18 @@ func TestServeBindsManagementListen(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("live %d", resp.StatusCode)
 	}
+	resp, err = http.Get("http://" + mgmt + "/v1/health/ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("ready %d (agent bound, trap off, management bound)", resp.StatusCode)
+	}
+	var hcOut, hcErr strings.Builder
+	if code := healthcheckCmd([]string{"--url", "http://" + mgmt + "/v1/health/ready"}, &hcOut, &hcErr); code != 0 {
+		t.Fatalf("healthcheck exit %d stderr=%s", code, hcErr.String())
+	}
 	resp, err = http.Get("http://" + mgmt + "/v1/version")
 	if err != nil {
 		t.Fatal(err)

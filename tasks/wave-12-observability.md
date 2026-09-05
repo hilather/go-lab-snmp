@@ -1,6 +1,6 @@
 # OBS-001 — slog + OpenMetrics + ready
 
-Status: not-started
+Status: implemented
 Depends: AGENT-001, API-001
 Owns: internal/observability
 

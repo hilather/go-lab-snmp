@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/observability"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/usm"
@@ -21,6 +22,7 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 	}
 	if int64(len(pkt)) > s.maxMessageBytes() {
 		s.Dropped.Add(1)
+		s.observeTrap("", "oversize")
 		return
 	}
 
@@ -28,11 +30,13 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 	if !s.allowed(ip) {
 		s.Allowlist.Add(1)
 		s.Dropped.Add(1)
+		s.observeTrap("", "allowlist")
 		return
 	}
 	if !s.global.allow("global") || !s.perIP.allow(ip.String()) {
 		s.Admission.Add(1)
 		s.Dropped.Add(1)
+		s.observeTrap("", "admission")
 		return
 	}
 
@@ -43,10 +47,13 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 			return
 		}
 		s.Dropped.Add(1)
+		s.observeTrap("", "decode")
 		return
 	}
-	if !s.versionOK(versionLabel(msg.Version)) {
+	ver := versionLabel(msg.Version)
+	if !s.versionOK(ver) {
 		s.Dropped.Add(1)
+		s.observeTrap(ver, "version")
 		return
 	}
 
@@ -57,10 +64,12 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 		s.handleV3(pc, addr, pkt, msg)
 	default:
 		s.Dropped.Add(1)
+		s.observeTrap(ver, "drop")
 	}
 }
 
 func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
+	ver := versionLabel(msg.Version)
 	c := s.lookupCommunity(msg.Community)
 	if c == nil {
 		s.authFail(raw, addr, msg)
@@ -68,11 +77,13 @@ func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, m
 	}
 	if !communityVersionOK(c, versionLabel(msg.Version)) {
 		s.Dropped.Add(1)
+		s.observeTrap(ver, "version")
 		return
 	}
 	req := msg.RequestPDU()
 	if req == nil || !trapPDU(req.Type) {
 		s.Dropped.Add(1)
+		s.observeTrap(ver, "drop")
 		return
 	}
 	s.storeAndAck(pc, addr, raw, msg, c.Name, "", "")
@@ -126,6 +137,7 @@ func (s *Server) authFail(raw []byte, addr net.Addr, msg snmpwire.Message) {
 	s.AuthFail.Add(1)
 	if !s.acceptUnauth() {
 		s.Dropped.Add(1)
+		s.observeTrap(versionLabel(msg.Version), "auth_fail")
 		return
 	}
 	s.storeUnauthTrap(raw, addr, msg, unauthWarning(msg))
@@ -168,9 +180,11 @@ func (s *Server) storePDU(raw []byte, addr net.Addr, msg snmpwire.Message, commu
 	rec.Size = int64(len(raw))
 	if _, err := s.cfg.Store.Insert(rec); err != nil {
 		s.Dropped.Add(1)
+		s.observeTrap(rec.Version, "drop")
 		return false
 	}
 	s.Stored.Add(1)
+	s.observeTrap(rec.Version, "ok")
 	return true
 }
 
@@ -186,9 +200,11 @@ func (s *Server) storeBestEffort(raw []byte, addr net.Addr, warning string) {
 	rec.Size = int64(len(raw))
 	if _, err := s.cfg.Store.Insert(rec); err != nil {
 		s.Dropped.Add(1)
+		s.observeTrap(rec.Version, "drop")
 		return
 	}
 	s.Stored.Add(1)
+	s.observeTrap(rec.Version, "ok")
 }
 
 func (s *Server) ackInform(pc net.PacketConn, addr net.Addr, msg snmpwire.Message, req snmpwire.PDU) {
@@ -286,6 +302,40 @@ func addrString(addr net.Addr) string {
 		return ""
 	}
 	return addr.String()
+}
+
+func (s *Server) observeTrap(version, decision string) {
+	if s == nil {
+		return
+	}
+	dec := observability.TrapDecision(decision)
+	if s.cfg.Metrics != nil {
+		s.cfg.Metrics.Inc(observability.MetricTrapsTotal, map[string]string{
+			"version":  observability.SNMPVersion(version),
+			"decision": dec,
+		}, 1)
+		if dec == "auth_fail" {
+			s.cfg.Metrics.Inc(observability.MetricAuthFailTotal, map[string]string{
+				"version": observability.SNMPVersion(version),
+			}, 1)
+		}
+	}
+	if s.cfg.Logger == nil {
+		return
+	}
+	s.cfg.Logger.Log(observability.Record{
+		Event:     observability.EventSNMPTrap,
+		Component: "snmpsink",
+		Result:    dec,
+	})
+	if dec == "auth_fail" {
+		s.cfg.Logger.Log(observability.Record{
+			Event:     observability.EventAuthFailure,
+			Component: "snmpsink",
+			Level:     observability.LevelWarn,
+			Result:    dec,
+		})
+	}
 }
 
 func versionLabel(v snmpwire.Version) string {
