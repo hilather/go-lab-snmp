@@ -1,0 +1,15 @@
+# Numeric lex order, not string sort: 1.3.6 < 1.3.6.1 < 1.3.10
+name: lex-order
+objects:
+  - oid: "1.3.10"
+    type: integer
+    access: read
+    value: 3
+  - oid: "1.3.6.1"
+    type: integer
+    access: read
+    value: 2
+  - oid: "1.3.6"
+    type: integer
+    access: read
+    value: 1

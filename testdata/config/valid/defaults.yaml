@@ -1,0 +1,20 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: defaults
+spec:
+  maps:
+    - name: system-if
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          name: sysDescr
+          type: octetString
+          value: "LabSNMP"
+        - oid: "1.3.6.1.2.1.1.3.0"
+          name: sysUpTime
+          type: timeTicks
+          valueFrom: uptime
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: system-if

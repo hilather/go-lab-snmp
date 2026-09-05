@@ -1,0 +1,55 @@
+# labinfo catalog fragment. Integrator owns the live catalog; this is the BOM.
+# Merge the labsnmp entry into profiles/default/labinfo/services.yaml.
+# Catalog id is labsnmp. Must include urls + connection or labinfo fails to start.
+# Management env is LABSNMP_REST_PORT (default 18161).
+services:
+  - id: labsnmp
+    name: LabSNMP (lab SNMP agent + trap sink)
+    description: Laboratory SNMPv1/v2c/v3 agent with per-community and per-user OID maps, plus a receive-only trap/inform sink. Operator SPA at /, REST under /v1, MCP under /mcp. Never forwards or originates traps.
+    urls:
+      - name: Operator console
+        url: http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT}/
+      - name: REST API
+        url: http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT}/v1
+      - name: MCP endpoint
+        url: http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT}/mcp
+    note: "SNMP data plane: snmpget/snmpwalk against ${LAB_PUBLIC_HOST} UDP ${LABSNMP_AGENT_PORT} (default 10161; container :161). Trap sink: snmptrap to UDP ${LABSNMP_TRAP_PORT} (default 10162; container :162). Native IANA 161/162 is a profile opt-in when snmpd/snmptrapd are gone. Identity is community/user, not client IP — Docker userland-proxy SNAT (NAT collision) does not collapse maps. Remote SPA needs http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT} in spec.management.allowedOrigins (exact Origin; loopback is already allowed; no \"*\")."
+    credential:
+      file: /run/lab-secrets/labsnmp-token
+      usage: "HTTP header 'Authorization: Bearer <token>' for native /v1, MCP, and the operator SPA; on the lab host: secrets/labsnmp-token"
+    connection:
+      endpoints:
+        - name: snmp-agent
+          protocol: snmp-udp
+          address: ${LAB_PUBLIC_HOST}:${LABSNMP_AGENT_PORT}
+          note: versions v1/v2c/v3; communities public (map public-if, read) and private (map private-if, read-write); v3 user alice
+        - name: snmp-trap
+          protocol: snmp-trap-udp
+          address: ${LAB_PUBLIC_HOST}:${LABSNMP_TRAP_PORT}
+          note: receive-only; INFORM is WriteTo-acked; never forwarded or originated
+        - name: MCP (streamable HTTP)
+          protocol: mcp-streamable-http
+          address: http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT}/mcp
+          note: bearer only; gateway interpolates LABSNMP_TOKEN
+      parameters:
+        auth: "none on the v1/v2c data plane (community strings are wire handles from communityFile); v3 user alice is authPriv SHA-256/AES-128. The bearer token is only for the REST/MCP management plane"
+        tls: "not in 1.0 (spec.listeners.dtls.enabled / tcp.enabled reject true)"
+        maps: "public-if (SNMPv2-MIB system + ifTable) and private-if (distinct enterprise leaves). Community public cannot see private-only OIDs"
+        versions: "v1, v2c, v3 USM"
+        dest_port: "host publish default ${LABSNMP_AGENT_PORT}/${LABSNMP_TRAP_PORT}/${LABSNMP_REST_PORT} (10161/10162/18161). Privileged 161/162 is a profile opt-in when snmpd/snmptrapd are gone"
+      credentials:
+        - name: labsnmp-token
+          file: /run/lab-secrets/labsnmp-token
+          usage: "HTTP header 'Authorization: Bearer <token>' for native /v1 and MCP; on the lab host: secrets/labsnmp-token"
+        - name: snmp-public
+          file: /run/lab-secrets/snmp-public
+          usage: "v1/v2c community wire string for row id public (map public-if); on the lab host: secrets/snmp-public"
+        - name: snmp-private
+          file: /run/lab-secrets/snmp-private
+          usage: "v2c community wire string for row id private (map private-if); on the lab host: secrets/snmp-private"
+        - name: snmp-alice-auth
+          file: /run/lab-secrets/snmp-alice-auth
+          usage: "USM auth passphrase for user alice (SHA-256); on the lab host: secrets/snmp-alice-auth"
+        - name: snmp-alice-priv
+          file: /run/lab-secrets/snmp-alice-priv
+          usage: "USM priv passphrase for user alice (AES-128); on the lab host: secrets/snmp-alice-priv"

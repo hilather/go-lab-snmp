@@ -1,0 +1,20 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: x
+spec:
+  maps:
+    - name: private-if
+      objects:
+        - oid: "10.20.0.3.4.1.99999.1.0"
+          type: octetString
+          value: "x"
+  users:
+    - name: alice
+      level: noAuthNoPriv
+      access: read
+      map: private-if
+    - name: alice
+      level: noAuthNoPriv
+      access: read
+      map: private-if

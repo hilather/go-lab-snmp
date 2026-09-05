@@ -1,0 +1,16 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: x
+spec:
+  maps:
+    - name: system-if
+      objects:
+        - oid: "10.20.0.3.10.20.0.4.0"
+          type: timeTicks
+          access: write
+          valueFrom: uptime
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: system-if

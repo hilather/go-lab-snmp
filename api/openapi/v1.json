@@ -1,0 +1,497 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "cookieAuth": {
+        "in": "cookie",
+        "name": "labsnmp_session",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "REST adapter for the shared LabSNMP capability registry. Generated from internal/capabilities. Do not edit by hand.",
+    "title": "LabSNMP Management API",
+    "version": "v1",
+    "x-generated-by": "internal/control/rest.RenderOpenAPI; DO NOT EDIT."
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/audit": {
+      "get": {
+        "description": "Query recent in-memory audit events.",
+        "operationId": "audit.list",
+        "summary": "Audit list",
+        "tags": [
+          "audit.list"
+        ]
+      }
+    },
+    "/v1/audit/{id}": {
+      "get": {
+        "description": "Get one audit event by ID.",
+        "operationId": "audit.get",
+        "summary": "Audit get",
+        "tags": [
+          "audit.get"
+        ]
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "description": "Capability list and protocol metadata.",
+        "operationId": "capabilities.get",
+        "summary": "Capabilities",
+        "tags": [
+          "capabilities.get"
+        ]
+      }
+    },
+    "/v1/changes:apply": {
+      "post": {
+        "description": "Apply operations. expectedRevision is required.",
+        "operationId": "changes.apply",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Apply",
+        "tags": [
+          "changes.apply"
+        ]
+      }
+    },
+    "/v1/changes:plan": {
+      "post": {
+        "description": "Dry-run operations against the active snapshot.",
+        "operationId": "changes.plan",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Plan",
+        "tags": [
+          "changes.plan"
+        ]
+      }
+    },
+    "/v1/communities": {
+      "get": {
+        "description": "List communities. Wire strings never appear; communityFile paths may.",
+        "operationId": "communities.list",
+        "summary": "List communities",
+        "tags": [
+          "communities.list"
+        ]
+      }
+    },
+    "/v1/features": {
+      "get": {
+        "description": "Frozen live vs reset-only catalog.",
+        "operationId": "features.list",
+        "summary": "Features",
+        "tags": [
+          "features.list"
+        ]
+      }
+    },
+    "/v1/health/live": {
+      "get": {
+        "description": "Process liveness. Not an MCP tool.",
+        "operationId": "health.live",
+        "security": [],
+        "summary": "Health live",
+        "tags": [
+          "health.live"
+        ]
+      }
+    },
+    "/v1/health/ready": {
+      "get": {
+        "description": "Snapshot installed and enabled data-plane listeners bound. Not an MCP tool.",
+        "operationId": "health.ready",
+        "security": [],
+        "summary": "Health ready",
+        "tags": [
+          "health.ready"
+        ]
+      }
+    },
+    "/v1/maps": {
+      "get": {
+        "description": "List named OID maps.",
+        "operationId": "maps.list",
+        "summary": "List maps",
+        "tags": [
+          "maps.list"
+        ]
+      }
+    },
+    "/v1/maps/{name}": {
+      "get": {
+        "description": "Get one named OID map.",
+        "operationId": "maps.get",
+        "summary": "Get map",
+        "tags": [
+          "maps.get"
+        ]
+      }
+    },
+    "/v1/maps/{name}/oids:get": {
+      "post": {
+        "description": "Read one oid from a named map plus overlay.",
+        "operationId": "oids.get",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Get OID",
+        "tags": [
+          "oids.get"
+        ]
+      }
+    },
+    "/v1/maps/{name}/oids:set": {
+      "post": {
+        "description": "Write one overlay value. Same overlay as SNMP SET. Body is a single {oid, value}.",
+        "operationId": "oids.set",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Set OID",
+        "tags": [
+          "oids.set"
+        ]
+      }
+    },
+    "/v1/maps/{name}:query": {
+      "post": {
+        "description": "Simulate GET/GETNEXT/GETBULK against a named map without sending a datagram.",
+        "operationId": "maps.query",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Query map",
+        "tags": [
+          "maps.query"
+        ]
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+        "operationId": "metrics.get",
+        "summary": "Metrics",
+        "tags": [
+          "metrics.get"
+        ]
+      }
+    },
+    "/v1/preview/get": {
+      "get": {
+        "description": "Evaluate a community or user plus oid against the compiled tree without a wire packet.",
+        "operationId": "preview.get",
+        "summary": "Preview GET",
+        "tags": [
+          "preview.get"
+        ]
+      }
+    },
+    "/v1/queries": {
+      "get": {
+        "description": "Last-N PDU ring (request type, identity, decision, error status).",
+        "operationId": "queries.list",
+        "summary": "Query log",
+        "tags": [
+          "queries.list"
+        ]
+      }
+    },
+    "/v1/schema/config": {
+      "get": {
+        "description": "Published v1alpha1 config JSON Schema.",
+        "operationId": "schema.get",
+        "summary": "Config schema",
+        "tags": [
+          "schema.get"
+        ]
+      }
+    },
+    "/v1/session": {
+      "delete": {
+        "description": "Clear the operator UI session cookie.",
+        "operationId": "session.delete",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Delete session",
+        "tags": [
+          "session.delete"
+        ]
+      },
+      "get": {
+        "description": "Current session principal (cookie or bearer).",
+        "operationId": "session.get",
+        "summary": "Get session",
+        "tags": [
+          "session.get"
+        ]
+      },
+      "post": {
+        "description": "Cookie + CSRF session for the operator UI. Accepts bearer.",
+        "operationId": "session.create",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Create session",
+        "tags": [
+          "session.create"
+        ]
+      }
+    },
+    "/v1/state": {
+      "get": {
+        "description": "Redacted spec plus revision metadata.",
+        "operationId": "state.get",
+        "summary": "Get state",
+        "tags": [
+          "state.get"
+        ]
+      }
+    },
+    "/v1/state:export": {
+      "get": {
+        "description": "Canonical desired-state export plus drift material.",
+        "operationId": "state.export",
+        "summary": "Export",
+        "tags": [
+          "state.export"
+        ]
+      }
+    },
+    "/v1/state:reset": {
+      "post": {
+        "description": "Reread the bootstrap mount, drop overlay, wipe traps and queries, and swap. Never writes the file.",
+        "operationId": "state.reset",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Reset",
+        "tags": [
+          "state.reset"
+        ]
+      }
+    },
+    "/v1/state:validate": {
+      "post": {
+        "description": "Validate a candidate document and/or operations without writing.",
+        "operationId": "state.validate",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Validate",
+        "tags": [
+          "state.validate"
+        ]
+      }
+    },
+    "/v1/stats": {
+      "get": {
+        "description": "Trap store occupancy, overlay generation, and query ring length.",
+        "operationId": "stats.get",
+        "summary": "Stats",
+        "tags": [
+          "stats.get"
+        ]
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "description": "Listeners, revisions, hostTime, and ready.",
+        "operationId": "status.get",
+        "summary": "Agent status",
+        "tags": [
+          "status.get"
+        ]
+      }
+    },
+    "/v1/traps": {
+      "get": {
+        "description": "List the ephemeral trap/inform inbox.",
+        "operationId": "traps.list",
+        "summary": "List traps",
+        "tags": [
+          "traps.list"
+        ]
+      }
+    },
+    "/v1/traps/{id}": {
+      "get": {
+        "description": "Get one trap/inform by ULID.",
+        "operationId": "traps.get",
+        "summary": "Get trap",
+        "tags": [
+          "traps.get"
+        ]
+      }
+    },
+    "/v1/traps/{id}/raw": {
+      "get": {
+        "description": "Get the retained trap/inform datagram.",
+        "operationId": "traps.raw",
+        "summary": "Get trap raw",
+        "tags": [
+          "traps.raw"
+        ]
+      }
+    },
+    "/v1/traps:clear": {
+      "post": {
+        "description": "Wipe the trap inbox. Waiters receive store_wiped.",
+        "operationId": "traps.clear",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Clear traps",
+        "tags": [
+          "traps.clear"
+        ]
+      }
+    },
+    "/v1/traps:wait": {
+      "post": {
+        "description": "Wait for an existing or later matching trap. wait_timeout or store_wiped.",
+        "operationId": "traps.wait",
+        "parameters": [
+          {
+            "description": "Required when the labsnmp_session cookie authenticates a mutating request.",
+            "in": "header",
+            "name": "X-LabSNMP-CSRF",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Wait traps",
+        "tags": [
+          "traps.wait"
+        ]
+      }
+    },
+    "/v1/users": {
+      "get": {
+        "description": "List v3 users. Secret bytes never appear; secretFile paths may.",
+        "operationId": "users.list",
+        "summary": "List users",
+        "tags": [
+          "users.list"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "description": "Build and protocol versions.",
+        "operationId": "version.get",
+        "summary": "Version",
+        "tags": [
+          "version.get"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "cookieAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "Management listener (default address :8088)",
+      "url": "/"
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+package mcp
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/hilather/go-lab-snmp/internal/auth"
+	"github.com/hilather/go-lab-snmp/internal/buildinfo"
+	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/store"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+func TestProtocolVersionRequired(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	req := doRaw(t, s.Handler(), rpcCall(1, "server/discover", nil), map[string]string{
+		"Content-Type":  "application/json",
+		"Accept":        "application/json, text/event-stream",
+		"Authorization": "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	requireRPCError(t, req, http.StatusBadRequest, "validation_failed")
+}
+
+func TestProtocolVersionMismatch(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	rec := doRaw(t, s.Handler(), rpcCall(1, "server/discover", nil), map[string]string{
+		"Content-Type":        "application/json",
+		"Accept":              "application/json, text/event-stream",
+		headerProtocolVersion: "2025-11-25",
+		"Authorization":       "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	requireRPCError(t, rec, http.StatusBadRequest, "validation_failed")
+}
+
+func TestPinnedProtocolDiscover(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	ir := cs.InitializeResult()
+	if ir == nil {
+		t.Fatal("missing initialize/discover result")
+	}
+	if ir.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("negotiated %q want %s", ir.ProtocolVersion, ProtocolVersion)
+	}
+	if buildinfo.Current().Protocols.MCP != ProtocolVersion {
+		t.Fatalf("buildinfo MCP=%q", buildinfo.Current().Protocols.MCP)
+	}
+}
+
+func TestDiscoverAdvertisesOnlyPinnedVersion(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	body := rpcCall(1, "server/discover", map[string]any{
+		"_meta": map[string]any{
+			"io.modelcontextprotocol/protocolVersion": ProtocolVersion,
+			"io.modelcontextprotocol/clientInfo": map[string]any{
+				"name": "labsnmp-test", "version": "dev",
+			},
+			"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		},
+	})
+	rec := doRaw(t, s.Handler(), body, map[string]string{
+		"Content-Type":        "application/json",
+		"Accept":              "application/json, text/event-stream",
+		headerProtocolVersion: ProtocolVersion,
+		"Mcp-Method":          "server/discover",
+		"Authorization":       "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	if rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
+		t.Fatalf("discover status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	m := decodeRPC(t, rec)
+	result, _ := m["result"].(map[string]any)
+	if result == nil {
+		t.Fatalf("discover missing result: %s", rec.Body.String())
+	}
+	raw, _ := result["supportedVersions"].([]any)
+	if len(raw) != 1 || raw[0] != ProtocolVersion {
+		t.Fatalf("supportedVersions=%v want [%s]", raw, ProtocolVersion)
+	}
+}
+
+func TestStreamableHTTPOnlyPOST(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	req := doRawMethod(t, s.Handler(), http.MethodGet, "/", "", map[string]string{
+		"Accept":              "text/event-stream",
+		headerProtocolVersion: ProtocolVersion,
+		"Authorization":       "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	if req.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status=%d want 405 body=%s", req.Code, req.Body.String())
+	}
+}
+
+func TestClosedRejectsRequests(t *testing.T) {
+	s, _ := newPinnedServer(t)
+	s.Close()
+	rec := doRaw(t, s.Handler(), rpcCall(1, "ping", nil), map[string]string{
+		"Content-Type":        "application/json",
+		"Accept":              "application/json, text/event-stream",
+		headerProtocolVersion: ProtocolVersion,
+		"Authorization":       "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("closed status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAllowLegacyClientsNegotiatesViaSDK(t *testing.T) {
+	_, svc := newTestServer(t)
+	s, err := New(Config{Service: svc, RatePerSec: -1, AllowLegacyClients: true, Auth: auth.Static(testBearerToken, "admin", model.RoleAdministrator)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	body := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"legacy-gateway","version":"0.0.1"}}}`
+	rec := doRaw(t, s.Handler(), body, map[string]string{
+		"Content-Type":  "application/json",
+		"Accept":        "application/json, text/event-stream",
+		"Authorization": "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	if rec.Code != http.StatusOK && rec.Code != http.StatusAccepted {
+		t.Fatalf("legacy initialize status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	got := decodeRPC(t, rec)
+	result, _ := got["result"].(map[string]any)
+	if result == nil || result["protocolVersion"] == "" {
+		t.Fatalf("legacy initialize missing result.protocolVersion: %s", rec.Body.String())
+	}
+	rec2 := doRaw(t, s.Handler(), body, map[string]string{
+		"Content-Type":        "application/json",
+		"Accept":              "application/json, text/event-stream",
+		headerProtocolVersion: "2025-03-26",
+		"Authorization":       "Bearer " + testBearerToken,
+	}, "127.0.0.1:1")
+	if rec2.Code == http.StatusBadRequest {
+		t.Fatalf("legacy mismatched header rejected: %s", rec2.Body.String())
+	}
+}
+
+func TestWaitPeeksBodyWithoutMcpName(t *testing.T) {
+	s, _ := newTestServer(t)
+	body := rpcCall(1, "tools/call", map[string]any{
+		"name": toolWait, "arguments": map[string]any{"timeout": "500ms"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	if !s.isLongRequest(req) {
+		t.Fatal("tools/call snmp_traps_wait must skip the 30s cap without Mcp-Name")
+	}
+	got, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != body {
+		t.Fatalf("peek consumed body: %s", got)
+	}
+}
+
+func TestTrapsWaitSkipsGenericRequestTimeout(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:            svc,
+		RatePerSec:         -1,
+		AllowLegacyClients: true,
+		RequestTimeout:     40 * time.Millisecond,
+		Auth:               auth.Static(testBearerToken, "admin", model.RoleAdministrator),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	ts := startHTTP(t, s)
+	cs := connectClient(t, ts)
+	done := make(chan *sdk.CallToolResult, 1)
+	go func() {
+		done <- callTool(t, cs, "snmp_traps_wait", map[string]any{"timeout": "500ms"})
+	}()
+	time.Sleep(80 * time.Millisecond)
+	id, err := svc.Traps().Insert(store.TrapRecord{
+		Version:         "v2c",
+		PDUType:         "trapv2",
+		Community:       "public",
+		NotificationOID: "1.3.6.1.6.3.1.1.5.1",
+		ReceivedAt:      time.Now().UTC(),
+		Raw:             []byte{0x30, 0x00},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := <-done
+	got := structuredMap(t, res)
+	if got["id"] != id {
+		t.Fatalf("wait id %v want %s", got["id"], id)
+	}
+}

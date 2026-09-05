@@ -1,0 +1,36 @@
+package mcp
+
+import (
+	"go/parser"
+	"go/token"
+	"os"
+	"strings"
+	"testing"
+)
+
+func TestNoRESTImport(t *testing.T) {
+	ents, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imp := range f.Imports {
+			path := strings.Trim(imp.Path.Value, `"`)
+			if strings.Contains(path, "internal/control/rest") {
+				t.Errorf("%s imports REST %s", name, path)
+			}
+			if path == "net/http/httputil" || strings.Contains(path, "internal/web") {
+				t.Errorf("%s imports forbidden %s", name, path)
+			}
+		}
+	}
+}

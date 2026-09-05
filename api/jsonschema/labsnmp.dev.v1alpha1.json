@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://labsnmp.dev/schemas/v1alpha1.json",
+  "title": "LabSNMP",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "labsnmp.dev/v1alpha1" },
+    "kind": { "const": "LabSNMP" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listeners": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agent": { "$ref": "#/$defs/udpListener" },
+            "traps": { "$ref": "#/$defs/udpListener" },
+            "dtls": { "$ref": "#/$defs/toggle" },
+            "tcp": { "$ref": "#/$defs/toggle" },
+            "management": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "address": { "type": "string" },
+                "restPath": { "type": "string" },
+                "mcpPath": { "type": "string" }
+              }
+            }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": { "const": "bearer" },
+            "tokens": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "role", "secretFile"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "role": { "enum": ["administrator", "reader"] },
+                  "secretFile": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        },
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "engineID": { "type": "string" },
+            "engineBoots": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "agent": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "versions": {
+              "type": "array",
+              "items": { "enum": ["v1", "v2c", "v3"] }
+            },
+            "maxVarBinds": { "type": "integer" },
+            "maxRepetitions": { "type": "integer" },
+            "maxMessageBytes": {}
+          }
+        },
+        "admission": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowClientCidrs": { "type": "array", "items": { "type": "string" } },
+            "maxDatagramsPerSec": { "type": "integer" },
+            "maxDatagramsPerIP": { "type": "integer" }
+          }
+        },
+        "maps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/map" }
+        },
+        "communities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/community" }
+        },
+        "users": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/user" }
+        },
+        "traps": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxMessages": { "type": "integer" },
+            "maxBytes": {},
+            "fullPolicy": { "enum": ["evict_oldest", "reject"] },
+            "maxWait": { "type": "string" },
+            "acceptUnauthenticated": { "type": "boolean" },
+            "rawRetain": { "type": "boolean" }
+          }
+        },
+        "management": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "allowedOrigins": { "type": "array", "items": { "type": "string" } },
+            "mcp": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "allowLegacyClients": { "type": "boolean" }
+              }
+            },
+            "bodyLimit": {}
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "logLevel": { "enum": ["debug", "info", "warn", "error"] },
+            "metrics": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "publicPath": { "type": "boolean" } }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "udpListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "address": { "type": "string" }
+      }
+    },
+    "toggle": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "map": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "objects": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/object" }
+        }
+      }
+    },
+    "object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oid", "type"],
+      "properties": {
+        "oid": { "type": "string" },
+        "name": { "type": "string" },
+        "type": {
+          "enum": [
+            "integer",
+            "octetString",
+            "objectIdentifier",
+            "null",
+            "ipAddress",
+            "counter32",
+            "gauge32",
+            "unsigned32",
+            "timeTicks",
+            "opaque",
+            "counter64"
+          ]
+        },
+        "access": { "enum": ["read", "write"] },
+        "value": true,
+        "valueFrom": { "const": "uptime" },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer" },
+            "max": { "type": "integer" }
+          }
+        },
+        "size": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer" },
+            "max": { "type": "integer" }
+          }
+        }
+      }
+    },
+    "community": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "communityFile", "map"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "communityFile": { "type": "string", "minLength": 1 },
+        "versions": {
+          "type": "array",
+          "items": { "enum": ["v1", "v2c"] }
+        },
+        "access": { "enum": ["read", "read-write"] },
+        "map": { "type": "string", "minLength": 1 }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "level", "map"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "level": { "enum": ["noAuthNoPriv", "authNoPriv", "authPriv"] },
+        "auth": { "$ref": "#/$defs/usmAuth" },
+        "priv": { "$ref": "#/$defs/usmPriv" },
+        "access": { "enum": ["read", "read-write"] },
+        "map": { "type": "string", "minLength": 1 }
+      }
+    },
+    "usmAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "secretFile"],
+      "properties": {
+        "protocol": { "enum": ["md5", "sha1", "sha256"] },
+        "secretFile": { "type": "string", "minLength": 1 }
+      }
+    },
+    "usmPriv": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "secretFile"],
+      "properties": {
+        "protocol": { "enum": ["des", "aes128"] },
+        "secretFile": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

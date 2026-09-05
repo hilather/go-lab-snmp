@@ -1,0 +1,338 @@
+package mcp
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/auth"
+	"github.com/hilather/go-lab-snmp/internal/buildinfo"
+	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const (
+	// ProtocolVersion is the only MCP revision first GA speaks (ADR 0006).
+	ProtocolVersion = "2026-07-28"
+
+	// SDKModule is the official Go SDK module path.
+	SDKModule = "github.com/modelcontextprotocol/go-sdk"
+
+	// SDKVersion is the pinned official SDK tag.
+	SDKVersion = "v1.7.0"
+
+	// DefaultPath is the Streamable HTTP mount on the management listener.
+	DefaultPath = config.DefaultMCPPath
+
+	DefaultMaxBodyBytes   = config.DefaultBodyLimit
+	DefaultRequestTimeout = 30 * time.Second
+	DefaultMaxConcurrent  = 256
+
+	headerProtocolVersion = "Mcp-Protocol-Version"
+	headerName            = "Mcp-Name"
+	headerRequestID       = "X-Request-ID"
+	headerOrigin          = "Origin"
+	headerAuthorization   = "Authorization"
+
+	toolWait = "snmp_traps_wait"
+)
+
+// Config constructs the MCP adapter.
+type Config struct {
+	Service            app.Service
+	AllowedOrigins     []string
+	AllowLegacyClients bool
+	RatePerSec         float64
+	RateBurst          float64
+	MaxBodyBytes       int64
+	RequestTimeout     time.Duration
+	MaxConcurrent      int
+	Auth               *auth.Verifier
+	FixedActor         *app.Actor
+}
+
+// Server is the official-SDK adapter. Third-party MCP types do not escape it.
+type Server struct {
+	cfg      Config
+	svc      app.Service
+	sdk      *sdk.Server
+	http     *sdk.StreamableHTTPHandler
+	httpOpts *sdk.StreamableHTTPOptions
+	maxBody  int64
+	timeout  time.Duration
+	inflight chan struct{}
+	rate     *limiter
+	closed   atomic.Bool
+	sec      sync.RWMutex
+}
+
+type ctxKey int
+
+const (
+	ctxActor ctxKey = iota
+	ctxRequestID
+)
+
+// New builds a Server. Tools and resources come from the frozen registry.
+func New(cfg Config) (*Server, error) {
+	if cfg.Service == nil {
+		return nil, errors.New("mcp: Service is required")
+	}
+	maxBody := cfg.MaxBodyBytes
+	if maxBody <= 0 {
+		maxBody = DefaultMaxBodyBytes
+	}
+	timeout := cfg.RequestTimeout
+	if timeout <= 0 {
+		timeout = DefaultRequestTimeout
+	}
+	n := cfg.MaxConcurrent
+	if n <= 0 {
+		n = DefaultMaxConcurrent
+	}
+
+	info := buildinfo.Current()
+	impl := &sdk.Implementation{
+		Name:    "labsnmp",
+		Title:   "LabSNMP",
+		Version: info.Version,
+	}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	s := &Server{
+		cfg:      cfg,
+		svc:      cfg.Service,
+		maxBody:  maxBody,
+		timeout:  timeout,
+		inflight: make(chan struct{}, n),
+		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
+	}
+	sdkOpts := &sdk.ServerOptions{
+		Instructions: "LabSNMP control plane. Use typed snmp_* tools; do not assume connection state. Protocol " + ProtocolVersion + ".",
+		Logger:       logger,
+		Capabilities: &sdk.ServerCapabilities{
+			Logging:   nil,
+			Tools:     &sdk.ToolCapabilities{ListChanged: false},
+			Resources: &sdk.ResourceCapabilities{ListChanged: false, Subscribe: false},
+		},
+		SchemaCache: sdk.NewSchemaCache(),
+	}
+	s.sdk = sdk.NewServer(impl, sdkOpts)
+	s.sdk.AddReceivingMiddleware(s.pinProtocolMiddleware)
+	if appSvc, ok := s.svc.(*app.App); ok {
+		appSvc.OnReset(s.reloadAuth)
+		appSvc.OnApply(s.reloadAuth)
+	}
+	s.registerTools()
+	s.registerResources()
+
+	s.httpOpts = &sdk.StreamableHTTPOptions{
+		// 2026-07-28 Streamable HTTP is accepted only when Stateless is true.
+		Stateless:                    true,
+		Logger:                       logger,
+		MaxRequestBodyBytes:          maxBody,
+		PropagateRequestCancellation: true,
+		DisableLocalhostProtection:   true,
+	}
+	s.http = sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
+		return s.sdk
+	}, s.httpOpts)
+	return s, nil
+}
+
+// Handler returns the Streamable HTTP adapter. Mount it at /mcp.
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(s.serveHTTP)
+}
+
+// Close marks the adapter stopped.
+func (s *Server) Close() {
+	s.closed.Store(true)
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	reqID := requestID(r)
+	w.Header().Set(headerRequestID, reqID)
+
+	if s.closed.Load() {
+		writeRPC(w, http.StatusServiceUnavailable, domainerr.Internal("server closed"))
+		return
+	}
+
+	if err := checkOrigin(r.Header.Get(headerOrigin), s.allowedOrigins()); err != nil {
+		writeRPC(w, http.StatusForbidden, err)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		writeRPC(w, http.StatusMethodNotAllowed, domainerr.MethodNotAllowed("method not allowed"))
+		return
+	}
+
+	select {
+	case s.inflight <- struct{}{}:
+		defer func() { <-s.inflight }()
+	default:
+		writeRPC(w, http.StatusTooManyRequests, domainerr.RateLimited("too many concurrent management requests"))
+		return
+	}
+	if err := s.rate.allow(r.RemoteAddr); err != nil {
+		writeRPC(w, http.StatusTooManyRequests, err)
+		return
+	}
+
+	ctx := r.Context()
+	var cancel context.CancelFunc
+	if s.timeout > 0 && !s.isLongRequest(r) {
+		ctx, cancel = context.WithTimeout(ctx, s.timeout)
+		defer cancel()
+	}
+	ctx = context.WithValue(ctx, ctxRequestID, reqID)
+	r = r.WithContext(ctx)
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			writeRPC(w, http.StatusInternalServerError, domainerr.Internal("internal error"))
+		}
+	}()
+
+	if !s.allowLegacy() {
+		if err := validateProtocolVersion(r); err != nil {
+			writeRPC(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+
+	actor, err := s.authenticate(r)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if de, ok := domainerr.As(err); ok && de.Code == domainerr.CodeForbidden {
+			status = http.StatusForbidden
+		}
+		writeRPC(w, status, err)
+		return
+	}
+	r = r.WithContext(withActor(r.Context(), actor))
+
+	s.http.ServeHTTP(w, r)
+}
+
+func (s *Server) isLongRequest(r *http.Request) bool {
+	if strings.TrimSpace(r.Header.Get(headerName)) == toolWait {
+		return true
+	}
+	return s.peekToolWait(r)
+}
+
+func (s *Server) peekToolWait(r *http.Request) bool {
+	if r.Body == nil {
+		return false
+	}
+	limit := s.maxBody
+	if limit <= 0 {
+		limit = DefaultMaxBodyBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
+	_ = r.Body.Close()
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil || int64(len(body)) > limit {
+		return false
+	}
+	return jsonRPCIsToolWait(body)
+}
+
+func jsonRPCIsToolWait(body []byte) bool {
+	var msg struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &msg); err != nil {
+		return false
+	}
+	return msg.Method == "tools/call" && msg.Params.Name == toolWait
+}
+
+func (s *Server) allowedOrigins() []string {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return append([]string(nil), s.cfg.AllowedOrigins...)
+}
+
+func (s *Server) allowLegacy() bool {
+	s.sec.RLock()
+	defer s.sec.RUnlock()
+	return s.cfg.AllowLegacyClients
+}
+
+func requestID(r *http.Request) string {
+	if id := r.Header.Get(headerRequestID); id != "" {
+		return id
+	}
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "req-fallback"
+	}
+	return hex.EncodeToString(b[:])
+}
+
+func withActor(ctx context.Context, a app.Actor) context.Context {
+	return context.WithValue(ctx, ctxActor, a)
+}
+
+func (s *Server) actorFrom(ctx context.Context) app.Actor {
+	a, _ := ctx.Value(ctxActor).(app.Actor)
+	if a.ID != "" || a.Class != "" {
+		if a.Transport == "" {
+			a.Transport = "mcp"
+		}
+		return a
+	}
+	if s != nil && s.cfg.FixedActor != nil {
+		out := *s.cfg.FixedActor
+		if out.Transport == "" {
+			out.Transport = "mcp"
+		}
+		return out
+	}
+	if a.Transport == "" {
+		a.Transport = "mcp"
+	}
+	return a
+}
+
+func (s *Server) reloadAuth() {
+	appSvc, ok := s.svc.(*app.App)
+	if !ok {
+		return
+	}
+	snap := appSvc.Active()
+	if snap == nil || snap.Canonical == nil {
+		return
+	}
+	s.sec.Lock()
+	s.cfg.AllowedOrigins = append([]string(nil), snap.Canonical.Spec.Management.AllowedOrigins...)
+	s.cfg.AllowLegacyClients = snap.Canonical.Spec.Management.MCP.AllowLegacyClients
+	s.sec.Unlock()
+	if s.cfg.Auth == nil {
+		return
+	}
+	next, err := auth.FromSpecAt(snap.Canonical.Spec.Auth, appSvc.BootstrapDir())
+	if err != nil {
+		next = auth.Empty()
+	}
+	s.cfg.Auth.Replace(next)
+}

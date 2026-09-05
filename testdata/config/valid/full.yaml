@@ -1,0 +1,122 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: lab-snmp
+  labels:
+    env: test
+spec:
+  listeners:
+    agent:
+      enabled: true
+      address: ":161"
+    traps:
+      enabled: true
+      address: ":162"
+    dtls:
+      enabled: false
+    tcp:
+      enabled: false
+    management:
+      address: ":8088"
+      restPath: /v1
+      mcpPath: /mcp
+  auth:
+    mode: bearer
+    tokens:
+      - id: admin
+        role: administrator
+        secretFile: testdata/secrets/token-admin
+      - id: reader
+        role: reader
+        secretFile: testdata/secrets/token-reader
+  engine:
+    engineID: "80000000046c6162736e6d70aabbccdd"
+    engineBoots: 1
+  agent:
+    versions: [v1, v2c, v3]
+    maxVarBinds: 64
+    maxRepetitions: 100
+    maxMessageBytes: 64KiB
+  admission:
+    allowClientCidrs:
+      - "10.99.42.0/24"
+      - "127.0.0.0/8"
+      - "::1/128"
+    maxDatagramsPerSec: 10000
+    maxDatagramsPerIP: 500
+  ui:
+    enabled: true
+  management:
+    allowedOrigins: []
+    mcp:
+      allowLegacyClients: true
+    bodyLimit: 1MiB
+  observability:
+    logLevel: info
+    metrics:
+      publicPath: false
+  traps:
+    maxMessages: 1000
+    maxBytes: 16MiB
+    fullPolicy: evict_oldest
+    maxWait: 60s
+    acceptUnauthenticated: false
+    rawRetain: true
+  maps:
+    - name: public-if
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          name: sysDescr
+          type: octetString
+          access: read
+          value: "LabSNMP public-if"
+        - oid: "1.3.6.1.2.1.1.3.0"
+          name: sysUpTime
+          type: timeTicks
+          access: read
+          valueFrom: uptime
+        - oid: "1.3.6.1.2.1.2.2.1.8.1"
+          name: ifOperStatus.1
+          type: integer
+          access: write
+          value: 1
+          range: { min: 1, max: 7 }
+    - name: private-if
+      objects:
+        - oid: "1.3.6.1.4.1.99999.1.0"
+          name: labPrivate
+          type: octetString
+          access: read
+          value: "private-horizon"
+        - oid: "1.3.6.1.4.1.99999.2.0"
+          name: labCounter64
+          type: counter64
+          access: read
+          value: 18446744073709551615
+        - oid: "1.3.6.1.2.1.1.3.0"
+          name: sysUpTime
+          type: timeTicks
+          access: read
+          valueFrom: uptime
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      versions: [v1, v2c]
+      access: read
+      map: public-if
+    - name: private
+      communityFile: testdata/secrets/snmp-private
+      versions: [v2c]
+      access: read-write
+      map: private-if
+  users:
+    - name: alice
+      level: authPriv
+      auth:
+        protocol: sha256
+        secretFile: testdata/secrets/snmp-alice-auth
+      priv:
+        protocol: aes128
+        secretFile: testdata/secrets/snmp-alice-priv
+      access: read-write
+      map: private-if

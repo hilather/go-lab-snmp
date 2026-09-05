@@ -1,0 +1,18 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: x
+spec:
+  listeners:
+    tcp:
+      enabled: true
+  maps:
+    - name: system-if
+      objects:
+        - oid: "10.20.0.3.10.20.0.5.0"
+          type: octetString
+          value: "x"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: system-if

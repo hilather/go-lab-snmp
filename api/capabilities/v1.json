@@ -1,0 +1,996 @@
+{
+  "apiVersion": "labsnmp.dev/capabilities/v1",
+  "generatedBy": "scripts/generate; DO NOT EDIT.",
+  "capabilities": [
+    {
+      "id": "health.live",
+      "title": "Health live",
+      "version": "v1",
+      "description": "Process liveness. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/live"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "health.ready",
+      "title": "Health ready",
+      "version": "v1",
+      "description": "Snapshot installed and enabled data-plane listeners bound. Not an MCP tool.",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/health/ready"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "version.get",
+      "title": "Version",
+      "version": "v1",
+      "description": "Build and protocol versions.",
+      "outputSchema": {
+        "name": "Version"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/version"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_version_get"
+        ]
+      },
+      "serviceMethods": [
+        "Version"
+      ]
+    },
+    {
+      "id": "capabilities.get",
+      "title": "Capabilities",
+      "version": "v1",
+      "description": "Capability list and protocol metadata.",
+      "outputSchema": {
+        "name": "CapabilityView"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/capabilities"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_capabilities_get"
+        ],
+        "resources": [
+          "labsnmp://capabilities"
+        ]
+      },
+      "serviceMethods": [
+        "Capabilities"
+      ]
+    },
+    {
+      "id": "status.get",
+      "title": "Agent status",
+      "version": "v1",
+      "description": "Listeners, revisions, hostTime, and ready.",
+      "outputSchema": {
+        "name": "Status"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/status"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_status_get"
+        ],
+        "resources": [
+          "labsnmp://status"
+        ]
+      },
+      "serviceMethods": [
+        "Status"
+      ]
+    },
+    {
+      "id": "schema.get",
+      "title": "Config schema",
+      "version": "v1",
+      "description": "Published v1alpha1 config JSON Schema.",
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/schema/config"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_schema_get"
+        ]
+      },
+      "serviceMethods": [
+        "ConfigSchema"
+      ]
+    },
+    {
+      "id": "features.list",
+      "title": "Features",
+      "version": "v1",
+      "description": "Frozen live vs reset-only catalog.",
+      "outputSchema": {
+        "name": "FeatureList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/features"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_features_list"
+        ],
+        "resources": [
+          "labsnmp://features"
+        ]
+      },
+      "serviceMethods": [
+        "Features"
+      ]
+    },
+    {
+      "id": "state.get",
+      "title": "Get state",
+      "version": "v1",
+      "description": "Redacted spec plus revision metadata.",
+      "outputSchema": {
+        "name": "StateView"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_state_get"
+        ],
+        "resources": [
+          "labsnmp://state"
+        ]
+      },
+      "serviceMethods": [
+        "GetState"
+      ]
+    },
+    {
+      "id": "state.validate",
+      "title": "Validate",
+      "version": "v1",
+      "description": "Validate a candidate document and/or operations without writing.",
+      "inputSchema": {
+        "name": "ValidateIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "snmp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:validate"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_state_validate"
+        ]
+      },
+      "serviceMethods": [
+        "Validate"
+      ]
+    },
+    {
+      "id": "state.export",
+      "title": "Export",
+      "version": "v1",
+      "description": "Canonical desired-state export plus drift material.",
+      "outputSchema": {
+        "name": "Export"
+      },
+      "requiredScopes": [
+        "snmp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/state:export"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_state_export"
+        ]
+      },
+      "serviceMethods": [
+        "Export"
+      ]
+    },
+    {
+      "id": "state.reset",
+      "title": "Reset",
+      "version": "v1",
+      "description": "Reread the bootstrap mount, drop overlay, wipe traps and queries, and swap. Never writes the file.",
+      "inputSchema": {
+        "name": "ResetIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "snmp.admin"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/state:reset"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_state_reset"
+        ]
+      },
+      "serviceMethods": [
+        "Reset"
+      ]
+    },
+    {
+      "id": "changes.plan",
+      "title": "Plan",
+      "version": "v1",
+      "description": "Dry-run operations against the active snapshot.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "Plan"
+      },
+      "requiredScopes": [
+        "snmp.admin"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:plan"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_change_plan"
+        ]
+      },
+      "serviceMethods": [
+        "Plan"
+      ]
+    },
+    {
+      "id": "changes.apply",
+      "title": "Apply",
+      "version": "v1",
+      "description": "Apply operations. expectedRevision is required.",
+      "inputSchema": {
+        "name": "ChangeIn"
+      },
+      "outputSchema": {
+        "name": "ApplyResult"
+      },
+      "requiredScopes": [
+        "snmp.admin"
+      ],
+      "mutating": true,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/changes:apply"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_change_apply"
+        ]
+      },
+      "serviceMethods": [
+        "Apply"
+      ]
+    },
+    {
+      "id": "session.create",
+      "title": "Create session",
+      "version": "v1",
+      "description": "Cookie + CSRF session for the operator UI. Accepts bearer.",
+      "mutating": true,
+      "idempotent": false,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.get",
+      "title": "Get session",
+      "version": "v1",
+      "description": "Current session principal (cookie or bearer).",
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "session.delete",
+      "title": "Delete session",
+      "version": "v1",
+      "description": "Clear the operator UI session cookie.",
+      "mutating": true,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "DELETE",
+          "path": "/v1/session"
+        }
+      ],
+      "mcp": null
+    },
+    {
+      "id": "maps.list",
+      "title": "List maps",
+      "version": "v1",
+      "description": "List named OID maps.",
+      "outputSchema": {
+        "name": "MapList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/maps"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_maps_list"
+        ],
+        "resources": [
+          "labsnmp://maps"
+        ]
+      },
+      "serviceMethods": [
+        "ListMaps"
+      ]
+    },
+    {
+      "id": "maps.get",
+      "title": "Get map",
+      "version": "v1",
+      "description": "Get one named OID map.",
+      "outputSchema": {
+        "name": "MapSpec"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/maps/{name}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_map_get"
+        ],
+        "resources": [
+          "labsnmp://maps/{name}"
+        ]
+      },
+      "serviceMethods": [
+        "GetMap"
+      ]
+    },
+    {
+      "id": "maps.query",
+      "title": "Query map",
+      "version": "v1",
+      "description": "Simulate GET/GETNEXT/GETBULK against a named map without sending a datagram.",
+      "inputSchema": {
+        "name": "MapQueryIn"
+      },
+      "outputSchema": {
+        "name": "MapQueryResult"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/maps/{name}:query"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_map_query"
+        ]
+      },
+      "serviceMethods": [
+        "QueryMap"
+      ]
+    },
+    {
+      "id": "oids.set",
+      "title": "Set OID",
+      "version": "v1",
+      "description": "Write one overlay value. Same overlay as SNMP SET. Body is a single {oid, value}.",
+      "inputSchema": {
+        "name": "OIDSetIn"
+      },
+      "outputSchema": {
+        "name": "OIDResult"
+      },
+      "requiredScopes": [
+        "snmp.write"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/maps/{name}/oids:set"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_oid_set"
+        ]
+      },
+      "serviceMethods": [
+        "SetOID"
+      ]
+    },
+    {
+      "id": "oids.get",
+      "title": "Get OID",
+      "version": "v1",
+      "description": "Read one oid from a named map plus overlay.",
+      "inputSchema": {
+        "name": "OIDGetIn"
+      },
+      "outputSchema": {
+        "name": "OIDResult"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/maps/{name}/oids:get"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_oid_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetOID"
+      ]
+    },
+    {
+      "id": "queries.list",
+      "title": "Query log",
+      "version": "v1",
+      "description": "Last-N PDU ring (request type, identity, decision, error status).",
+      "outputSchema": {
+        "name": "QueryList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/queries"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_queries_list"
+        ],
+        "resources": [
+          "labsnmp://queries"
+        ]
+      },
+      "serviceMethods": [
+        "ListQueries"
+      ]
+    },
+    {
+      "id": "preview.get",
+      "title": "Preview GET",
+      "version": "v1",
+      "description": "Evaluate a community or user plus oid against the compiled tree without a wire packet.",
+      "outputSchema": {
+        "name": "OIDResult"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/preview/get"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_preview_get"
+        ]
+      },
+      "serviceMethods": [
+        "Preview"
+      ]
+    },
+    {
+      "id": "communities.list",
+      "title": "List communities",
+      "version": "v1",
+      "description": "List communities. Wire strings never appear; communityFile paths may.",
+      "outputSchema": {
+        "name": "CommunityList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/communities"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_communities_list"
+        ]
+      },
+      "serviceMethods": [
+        "ListCommunities"
+      ]
+    },
+    {
+      "id": "users.list",
+      "title": "List users",
+      "version": "v1",
+      "description": "List v3 users. Secret bytes never appear; secretFile paths may.",
+      "outputSchema": {
+        "name": "UserList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/users"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_users_list"
+        ]
+      },
+      "serviceMethods": [
+        "ListUsers"
+      ]
+    },
+    {
+      "id": "traps.list",
+      "title": "List traps",
+      "version": "v1",
+      "description": "List the ephemeral trap/inform inbox.",
+      "outputSchema": {
+        "name": "TrapList"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/traps"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_traps_list"
+        ],
+        "resources": [
+          "labsnmp://traps"
+        ]
+      },
+      "serviceMethods": [
+        "ListTraps"
+      ]
+    },
+    {
+      "id": "traps.get",
+      "title": "Get trap",
+      "version": "v1",
+      "description": "Get one trap/inform by ULID.",
+      "outputSchema": {
+        "name": "TrapRecord"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/traps/{id}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_trap_get"
+        ],
+        "resources": [
+          "labsnmp://traps/{id}"
+        ]
+      },
+      "serviceMethods": [
+        "GetTrap"
+      ]
+    },
+    {
+      "id": "traps.raw",
+      "title": "Get trap raw",
+      "version": "v1",
+      "description": "Get the retained trap/inform datagram.",
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/traps/{id}/raw"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_trap_raw_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetTrapRaw"
+      ]
+    },
+    {
+      "id": "traps.wait",
+      "title": "Wait traps",
+      "version": "v1",
+      "description": "Wait for an existing or later matching trap. wait_timeout or store_wiped.",
+      "inputSchema": {
+        "name": "TrapWaitIn"
+      },
+      "outputSchema": {
+        "name": "TrapRecord"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/traps:wait"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_traps_wait"
+        ]
+      },
+      "serviceMethods": [
+        "WaitTraps"
+      ]
+    },
+    {
+      "id": "traps.clear",
+      "title": "Clear traps",
+      "version": "v1",
+      "description": "Wipe the trap inbox. Waiters receive store_wiped.",
+      "requiredScopes": [
+        "snmp.write"
+      ],
+      "mutating": true,
+      "idempotent": false,
+      "rest": [
+        {
+          "method": "POST",
+          "path": "/v1/traps:clear"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_traps_clear"
+        ]
+      },
+      "serviceMethods": [
+        "ClearTraps"
+      ]
+    },
+    {
+      "id": "stats.get",
+      "title": "Stats",
+      "version": "v1",
+      "description": "Trap store occupancy, overlay generation, and query ring length.",
+      "outputSchema": {
+        "name": "Stats"
+      },
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/stats"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_stats_get"
+        ],
+        "resources": [
+          "labsnmp://stats"
+        ]
+      },
+      "serviceMethods": [
+        "Stats"
+      ]
+    },
+    {
+      "id": "audit.list",
+      "title": "Audit list",
+      "version": "v1",
+      "description": "Query recent in-memory audit events.",
+      "outputSchema": {
+        "name": "AuditList"
+      },
+      "requiredScopes": [
+        "snmp.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_audit_query"
+        ]
+      },
+      "serviceMethods": [
+        "QueryAudit"
+      ]
+    },
+    {
+      "id": "audit.get",
+      "title": "Audit get",
+      "version": "v1",
+      "description": "Get one audit event by ID.",
+      "outputSchema": {
+        "name": "AuditEvent"
+      },
+      "requiredScopes": [
+        "snmp.audit.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/audit/{id}"
+        }
+      ],
+      "mcp": {
+        "tools": [
+          "snmp_audit_get"
+        ]
+      },
+      "serviceMethods": [
+        "GetAudit"
+      ]
+    },
+    {
+      "id": "metrics.get",
+      "title": "Metrics",
+      "version": "v1",
+      "description": "OpenMetrics text. Served only when observability.metrics.publicPath is true.",
+      "requiredScopes": [
+        "snmp.read"
+      ],
+      "mutating": false,
+      "idempotent": true,
+      "restOnly": true,
+      "rest": [
+        {
+          "method": "GET",
+          "path": "/v1/metrics"
+        }
+      ],
+      "mcp": null
+    }
+  ],
+  "features": [
+    {
+      "id": "maps",
+      "apply": "live",
+      "path": "spec.maps"
+    },
+    {
+      "id": "communities",
+      "apply": "live",
+      "path": "spec.communities"
+    },
+    {
+      "id": "users",
+      "apply": "live",
+      "path": "spec.users"
+    },
+    {
+      "id": "trapStorePolicy",
+      "apply": "live",
+      "path": "spec.traps"
+    },
+    {
+      "id": "admission",
+      "apply": "live",
+      "path": "spec.admission"
+    },
+    {
+      "id": "agentCaps",
+      "apply": "live",
+      "path": "spec.agent"
+    },
+    {
+      "id": "observability",
+      "apply": "live",
+      "path": "spec.observability"
+    },
+    {
+      "id": "listeners.agent.address",
+      "apply": "reset-only",
+      "path": "spec.listeners.agent.address"
+    },
+    {
+      "id": "listeners.traps.address",
+      "apply": "reset-only",
+      "path": "spec.listeners.traps.address"
+    },
+    {
+      "id": "listeners.management.address",
+      "apply": "reset-only",
+      "path": "spec.listeners.management.address"
+    },
+    {
+      "id": "engine",
+      "apply": "reset-only",
+      "path": "spec.engine"
+    },
+    {
+      "id": "auth",
+      "apply": "reset-only",
+      "path": "spec.auth"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: split-horizon
+spec:
+  maps:
+    - name: public-if
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          name: sysDescr
+          type: octetString
+          value: "public horizon"
+    - name: private-if
+      objects:
+        - oid: "1.3.6.1.4.1.99999.1.0"
+          name: labPrivate
+          type: octetString
+          value: "private horizon"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      access: read
+      map: public-if
+    - name: vendor
+      communityFile: testdata/secrets/snmp-vendor
+      access: read-write
+      map: private-if
+  users:
+    - name: alice
+      level: authNoPriv
+      auth:
+        protocol: sha1
+        secretFile: testdata/secrets/snmp-alice-auth
+      access: read-write
+      map: private-if

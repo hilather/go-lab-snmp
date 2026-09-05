@@ -1,0 +1,41 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: soak
+spec:
+  admission:
+    allowClientCidrs:
+      - "127.0.0.0/8"
+      - "::1/128"
+    maxDatagramsPerSec: 100000
+    maxDatagramsPerIP: 100000
+  ui:
+    enabled: false
+  traps:
+    maxMessages: 64
+    maxBytes: 1MiB
+    fullPolicy: evict_oldest
+    acceptUnauthenticated: false
+  maps:
+    - name: rw
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          type: octetString
+          access: read
+          value: "descr"
+        - oid: "1.3.6.1.2.1.2.2.1.8.1"
+          type: integer
+          access: write
+          value: 1
+          range: { min: 1, max: 7 }
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      versions: [v1, v2c]
+      access: read
+      map: rw
+    - name: private
+      communityFile: testdata/secrets/snmp-private
+      versions: [v1, v2c]
+      access: read-write
+      map: rw
