@@ -61,7 +61,9 @@ SUT DTLS/10161 --> snmpagent ListenWithOptions (DTLS 1.2 record layer)
                      |          WriteTo / WriteTCP / Write
                      |
 SUT UDP/162 --> snmpsink --> decode --> store.Insert
-                     |                    (INFORM -> WriteTo source)
+SUT TCP/162 --> snmpsink ReadTCP (RFC 3430 BER length)
+SUT DTLS/10162 --> snmpsink ListenWithOptions
+                     |                    (INFORM -> WriteTo / WriteTCP / Write)
                      |
               atomic.Pointer[Snapshot]
                      ^
@@ -77,7 +79,7 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 | `internal/usm` | v3 USM auth/priv, engine ID, time window |
 | `internal/mibtree` | lexicographic OID tree per map |
 | `internal/snmpagent` | UDP 161, RFC 3430 TCP, DTLS 1.2 record layer; dispatch |
-| `internal/snmpsink` | UDP 162 listen, INFORM ack, insert |
+| `internal/snmpsink` | UDP 162, RFC 3430 TCP, DTLS 1.2 record layer; INFORM ack |
 | `internal/store` | trap ring + SET overlay |
 | `internal/compiler` | Normalize + Validate + compile Snapshot |
 | `internal/snapshot` | immutable Snapshot + atomic Store |

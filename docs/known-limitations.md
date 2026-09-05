@@ -1,10 +1,10 @@
 # Known limitations (1.1)
 
 Residual 1.1 surface. RFC 3430 TCP and a DTLS 1.2 record layer are
-schema-legal (`tcp.enabled` / `dtls.enabled` validate). Agent TCP and
-DTLS bind through the agent and Reset-driven Sync. Process `serve`
-still starts UDP-only until serve flags bind TCP/DTLS at startup.
-Trap TCP/DTLS bind on the trap plane. pion/dtls v3.1.8 cannot
+schema-legal (`tcp.enabled` / `dtls.enabled` validate). Agent and trap
+TCP/DTLS bind through the agent/sink and Reset-driven Sync. Process
+`serve` still starts UDP-only until serve flags bind TCP/DTLS at
+startup. pion/dtls v3.1.8 cannot
 round-trip DTLS application records ≳8KiB (no application-data
 fragmentation; 8192-byte inbound buffer).
 

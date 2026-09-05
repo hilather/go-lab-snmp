@@ -49,7 +49,8 @@ Changing an invariant requires an ADR first.
    `internal/control`, `internal/web`, or `net/http`.
 2. **No outbound SNMP.** Production those packages plus `internal/app`
    MUST NOT `Dial` / `DialTimeout` / `Dialer.Dial`. INFORM ack is
-   `WriteTo` on the trap socket. No trap originator. No manager CLI.
+   `WriteTo` on UDP or `Write`/`WriteTCP` on the accepted connection.
+   No trap originator. No manager CLI.
 3. **Never rewrite bootstrap YAML.** Reset rereads it, clears the SET
    overlay, and wipes the trap store.
 4. **KnownFields(true).** camelCase YAML. kebab aliases reject.

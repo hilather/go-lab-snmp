@@ -306,3 +306,151 @@ func TestDataPlaneSyncDTLS(t *testing.T) {
 		t.Fatal("DTLS listener not bound")
 	}
 }
+
+func TestDataPlaneSyncTrapTCP(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/full.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	sink, err := snmpsink.New(snmpsink.Config{
+		Store:     svc.Traps(),
+		Snapshots: svc.Snapshots(),
+		Clock:     sinkClock{snap.Clock},
+		BaseDir:   repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{sink: sink}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sink.Shutdown(ctx)
+	})
+	tcp := freeTCPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{TrapTCP: tcp}); err != nil {
+		t.Fatal(err)
+	}
+	if sink.Bound() {
+		t.Fatal("TCP-only Sync must not bind UDP")
+	}
+	if !sink.BoundTCP() {
+		t.Fatal("trap TCP listener not bound")
+	}
+	req := snmptest.MustEncodeInform(t, "public", 15, snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1})
+	c, err := net.DialTimeout("tcp", sink.TCPAddr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snmptest.MustDecode(t, raw)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 15 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+}
+
+func TestDataPlaneSyncTrapTCPRollback(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/full.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	sink, err := snmpsink.New(snmpsink.Config{
+		Store:     svc.Traps(),
+		Snapshots: svc.Snapshots(),
+		Clock:     sinkClock{snap.Clock},
+		BaseDir:   repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{sink: sink}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sink.Shutdown(ctx)
+	})
+	tcp1 := freeTCPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{TrapTCP: tcp1}); err != nil {
+		t.Fatal(err)
+	}
+	hold, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Close() }()
+	if err := dp.Sync(app.DesiredListeners{TrapTCP: hold.Addr().String()}); err == nil {
+		t.Fatal("expected trap tcp bind failure")
+	}
+	if !sink.BoundTCP() {
+		t.Fatal("old trap TCP listener must keep serving")
+	}
+	req := snmptest.MustEncodeInform(t, "public", 16, snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1})
+	c, err := net.DialTimeout("tcp", sink.TCPAddr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(2 * time.Second))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snmptest.MustDecode(t, raw)
+	if p := m.RequestPDU(); p == nil || p.Type != snmpwire.PDUResponse {
+		t.Fatalf("old trap TCP must keep serving: %+v", p)
+	}
+}
+
+func TestDataPlaneSyncTrapDTLS(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	svc, err := app.Boot(context.Background(), app.Options{BootstrapPath: "testdata/config/valid/dtls-enabled.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	snap := svc.Active()
+	sink, err := snmpsink.New(snmpsink.Config{
+		Store:     svc.Traps(),
+		Snapshots: svc.Snapshots(),
+		Clock:     sinkClock{snap.Clock},
+		BaseDir:   repoRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dp := &dataPlane{sink: sink}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = sink.Shutdown(ctx)
+	})
+	dtlsAddr := freeUDPAddr(t)
+	if err := dp.Sync(app.DesiredListeners{
+		TrapDTLS:     dtlsAddr,
+		DTLSCertFile: snap.DTLSCertFile,
+		DTLSKeyFile:  snap.DTLSKeyFile,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.BoundDTLS() {
+		t.Fatal("trap DTLS listener not bound")
+	}
+}

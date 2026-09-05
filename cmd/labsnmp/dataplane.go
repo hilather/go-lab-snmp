@@ -31,7 +31,6 @@ func (d *dataPlane) last() app.DesiredListeners {
 // Sync binds every new address before closing any old socket.
 // A failed new bind rolls back sockets opened in this call; the previous
 // listeners keep serving. Empty desired address stops that listener.
-// Trap TCP/DTLS are bound by the trap plane, not here.
 func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	if d == nil {
 		return fmt.Errorf("dataplane: nil")
@@ -40,7 +39,7 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	defer d.mu.Unlock()
 
 	var newAgent, newTrap net.PacketConn
-	var newTCP, newDTLS net.Listener
+	var newTCP, newDTLS, newTrapTCP, newTrapDTLS net.Listener
 	rollback := func() {
 		if newAgent != nil {
 			_ = newAgent.Close()
@@ -58,12 +57,20 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 			_ = newDTLS.Close()
 			newDTLS = nil
 		}
+		if newTrapTCP != nil {
+			_ = newTrapTCP.Close()
+			newTrapTCP = nil
+		}
+		if newTrapDTLS != nil {
+			_ = newTrapDTLS.Close()
+			newTrapDTLS = nil
+		}
 	}
 
 	if (desired.AgentUDP != "" || desired.AgentTCP != "" || desired.AgentDTLS != "") && d.agent == nil {
 		return fmt.Errorf("dataplane: agent server missing")
 	}
-	if desired.TrapUDP != "" && d.sink == nil {
+	if (desired.TrapUDP != "" || desired.TrapTCP != "" || desired.TrapDTLS != "") && d.sink == nil {
 		return fmt.Errorf("dataplane: trap server missing")
 	}
 
@@ -96,6 +103,16 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 		newTCP = ln
 	}
 
+	trapTCPBound := d.sink != nil && d.sink.BoundTCP()
+	if desired.TrapTCP != "" && (desired.TrapTCP != d.bound.TrapTCP || !trapTCPBound) {
+		ln, err := net.Listen("tcp", desired.TrapTCP)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpsink: tcp listen: %w", err)
+		}
+		newTrapTCP = ln
+	}
+
 	agentDTLSBound := d.agent != nil && d.agent.BoundDTLS()
 	dtlsCredsChanged := desired.DTLSCertFile != d.bound.DTLSCertFile ||
 		desired.DTLSKeyFile != d.bound.DTLSKeyFile ||
@@ -107,6 +124,16 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 			return fmt.Errorf("snmpagent: dtls listen: %w", err)
 		}
 		newDTLS = ln
+	}
+
+	trapDTLSBound := d.sink != nil && d.sink.BoundDTLS()
+	if desired.TrapDTLS != "" && (desired.TrapDTLS != d.bound.TrapDTLS || !trapDTLSBound || dtlsCredsChanged) {
+		ln, err := d.sink.ListenDTLS(desired.TrapDTLS, desired.DTLSCertFile, desired.DTLSKeyFile, desired.DTLSClientCAFile)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpsink: dtls listen: %w", err)
+		}
+		newTrapDTLS = ln
 	}
 
 	if d.agent != nil {
@@ -156,6 +183,30 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 			}
 		case newTrap != nil:
 			old := d.sink.SwapUDP(newTrap)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.TrapTCP == "":
+			old := d.sink.SwapTCP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTrapTCP != nil:
+			old := d.sink.SwapTCP(newTrapTCP)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.TrapDTLS == "":
+			old := d.sink.SwapDTLS(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTrapDTLS != nil:
+			old := d.sink.SwapDTLS(newTrapDTLS)
 			if old != nil {
 				_ = old.Close()
 			}

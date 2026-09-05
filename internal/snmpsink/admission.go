@@ -9,7 +9,20 @@ func peerAddr(addr net.Addr) netip.Addr {
 	if addr == nil {
 		return netip.Addr{}
 	}
-	if a, ok := addr.(*net.UDPAddr); ok && a != nil {
+	switch a := addr.(type) {
+	case *net.UDPAddr:
+		if a == nil {
+			return netip.Addr{}
+		}
+		ip, ok := netip.AddrFromSlice(a.IP)
+		if !ok {
+			return netip.Addr{}
+		}
+		return ip.Unmap()
+	case *net.TCPAddr:
+		if a == nil {
+			return netip.Addr{}
+		}
 		ip, ok := netip.AddrFromSlice(a.IP)
 		if !ok {
 			return netip.Addr{}

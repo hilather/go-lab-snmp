@@ -185,7 +185,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		return 1
 	}
 
-	sink, err := newTrapSink(desired.TrapUDP, svc.Snapshots(), snap, svc.Traps(), metrics, logger)
+	sink, err := newTrapSink(desired.TrapUDP, svc.Snapshots(), snap, svc.Traps(), metrics, logger, filepath.Dir(flags.Config))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 		shctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -390,7 +390,7 @@ func serveUIEnabled(svc *app.App) func() bool {
 	}
 }
 
-func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger) (*snmpsink.Server, error) {
+func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger, baseDir string) (*snmpsink.Server, error) {
 	if ring == nil {
 		ring = store.NewTrapRing(store.TrapPolicy{
 			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
@@ -431,6 +431,7 @@ func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ri
 		Clock:                 sinkClock{snap.Clock},
 		Metrics:               metrics,
 		Logger:                logger,
+		BaseDir:               baseDir,
 	})
 }
 
