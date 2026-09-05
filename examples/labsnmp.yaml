@@ -70,53 +70,53 @@ spec:
   maps:
     - name: public-if
       objects:
-        - oid: "10.20.0.3.10.20.0.5.0"
+        - oid: "1.3.6.1.2.1.1.1.0"
           name: sysDescr
           type: octetString
           access: read
           value: "LabSNMP public-if"
-        - oid: "10.20.0.3.10.0.1.5.0"
+        - oid: "1.3.6.1.2.1.1.2.0"
           name: sysObjectID
           type: objectIdentifier
           access: read
           value: "1.3.6.1.4.1.8072.3.2.10"
-        - oid: "10.20.0.3.10.20.0.4.0"
+        - oid: "1.3.6.1.2.1.1.3.0"
           name: sysUpTime
           type: timeTicks
           access: read
           valueFrom: uptime
-        - oid: "10.20.0.3.10.0.1.4.0"
+        - oid: "1.3.6.1.2.1.1.5.0"
           name: sysName
           type: octetString
           access: write
           value: "labsnmp"
-        - oid: "10.20.0.3.172.16.0.2.1.1"
+        - oid: "1.3.6.1.2.1.2.2.1.1.1"
           name: ifIndex.1
           type: integer
           access: read
           value: 1
-        - oid: "10.20.0.3.172.16.0.2.1.2"
+        - oid: "1.3.6.1.2.1.2.2.1.1.2"
           name: ifIndex.2
           type: integer
           access: read
           value: 2
-        - oid: "10.20.0.3.172.16.0.2.1.1"
+        - oid: "1.3.6.1.2.1.2.2.1.2.1"
           name: ifDescr.1
           type: octetString
           access: read
           value: "lo"
-        - oid: "10.20.0.3.172.16.0.2.2"
+        - oid: "1.3.6.1.2.1.2.2.1.2.2"
           name: ifDescr.2
           type: octetString
           access: read
           value: "eth0"
-        - oid: "10.20.0.3.172.16.1.4.1"
+        - oid: "1.3.6.1.2.1.2.2.1.8.1"
           name: ifOperStatus.1
           type: integer
           access: write
           value: 1
           range: { min: 1, max: 7 }
-        - oid: "10.20.0.3.172.16.1.4.2"
+        - oid: "1.3.6.1.2.1.2.2.1.8.2"
           name: ifOperStatus.2
           type: integer
           access: write
@@ -124,17 +124,17 @@ spec:
           range: { min: 1, max: 7 }
     - name: private-if
       objects:
-        - oid: "10.20.0.3.10.20.0.5.0"
+        - oid: "1.3.6.1.2.1.1.1.0"
           name: sysDescr
           type: octetString
           access: read
           value: "LabSNMP private-if"
-        - oid: "10.20.0.3.10.0.1.5.0"
+        - oid: "1.3.6.1.2.1.1.2.0"
           name: sysObjectID
           type: objectIdentifier
           access: read
           value: "1.3.6.1.4.1.99999.1"
-        - oid: "10.20.0.3.10.20.0.4.0"
+        - oid: "1.3.6.1.2.1.1.3.0"
           name: sysUpTime
           type: timeTicks
           access: read

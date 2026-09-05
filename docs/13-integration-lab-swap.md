@@ -182,8 +182,8 @@ auth/priv (`snmp-alice-auth`, `snmp-alice-priv`, ≥8 bytes).
 
 ## Smoke
 
-1. `snmpget -v2c -c public $HOST:$LABSNMP_AGENT_PORT 10.20.0.3.10.20.0.5.0`
-2. `snmpget -v3 -u alice -l authPriv -a SHA-256 -A … -x AES -X … $HOST:$LABSNMP_AGENT_PORT 10.20.0.3.10.0.1.5.0`
+1. `snmpget -v2c -c public $HOST:$LABSNMP_AGENT_PORT 1.3.6.1.2.1.1.1.0`
+2. `snmpget -v3 -u alice -l authPriv -a SHA-256 -A … -x AES -X … $HOST:$LABSNMP_AGENT_PORT 1.3.6.1.2.1.1.2.0`
 3. Confirm community isolation: `public` cannot see private-only OIDs.
 4. `snmptrap` v2c to `$LABSNMP_TRAP_PORT`; gateway `snmp_traps_wait`.
 
