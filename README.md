@@ -14,8 +14,9 @@ This is laboratory software. It is not a production SNMP agent.
 | Module | `github.com/hilather/go-lab-snmp` |
 | Image | `ghcr.io/hilather/labsnmp` |
 | Config | `labsnmp.dev/v1alpha1` · kind `LabSNMP` |
-| Agent | UDP/TCP SNMPv1/v2c/v3 · DTLS 1.2 record layer · container `:161` · host residual **10161** |
-| Traps | UDP/TCP sink · DTLS record layer · container `:162` · host residual **10162** |
+| Agent | UDP/TCP SNMPv1/v2c/v3 · container `:161` · host residual **10161** |
+| Traps | UDP/TCP sink · container `:162` · host residual **10162** |
+| DTLS | 1.2 record layer · container `:10161`/`:10162` · optional host **2161**/**2162** (not residual 10161→161) |
 | Control | REST `/v1` · MCP `/mcp` · UI `/` · host **18161** |
 
 ## Status

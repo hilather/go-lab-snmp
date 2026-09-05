@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Architecture
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 **Integrator:** https://github.com/hilather/mcp-integration-lab  
 **Target:** https://github.com/hilather/go-lab-snmp (empty)
@@ -59,10 +59,17 @@ That is LabSNMP.
 |---|---|---|---|---|
 | Agent | 161/udp | `:161/udp` | 10161/udp | `LABSNMP_AGENT_PORT=161` |
 | Traps | 162/udp | `:162/udp` | 10162/udp | `LABSNMP_TRAP_PORT=162` |
+| Agent TCP | 161/tcp | `:161/tcp` | optional 10161/tcp | RFC 3430; overlay off |
+| Traps TCP | 162/tcp | `:162/tcp` | optional 10162/tcp | RFC 3430; overlay off |
+| Agent DTLS | 10161/udp | `:10161/udp` | optional 2161/udp | DTLS 1.2 record layer; not RFC 6353 |
+| Traps DTLS | 10162/udp | `:10162/udp` | optional 2162/udp | DTLS 1.2 record layer; not RFC 6353 |
 | Management | n/a | `:8088/tcp` | 18161/tcp | `LABSNMP_MGMT_PORT` |
-| SNMP/TLS | 10161-ish / RFC 6353 | not in 1.0 | — | v1.1 |
+| SNMP/TLS | 10161/tcp RFC 6353 | residual | — | TLSTM/TSM; TLS-over-TCP not implemented |
 
-161 is often held by `snmpd`. 10161 is residual-as-default, not the design.
+161 is often held by `snmpd`. Host residual **10161** is UDP 161
+([ADR 0014](adr/0014-host-residual-10161-10162.md)), not in-container
+DTLS `:10161`. Optional DTLS host map is `2161:10161/udp`. RFC 6353
+TLSTM/TSM and TLS-over-TCP remain residual.
 
 ## Integrator later (SWAP-001)
 
