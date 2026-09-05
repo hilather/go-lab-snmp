@@ -293,12 +293,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			},
 			Metrics: metrics,
 			Logger:  logger,
-			UI:        http.FileServer(http.FS(web.Files())),
-			UIEnabled: serveUIEnabled(svc),
-			Mounts: map[string]http.Handler{
-				mcpPath: mcpSrv.Handler(),
-			},
-			UI: web.NewHandler(nil),
+			UI:      web.NewHandler(nil),
 			UIEnabled: func() bool {
 				if !web.UIEnabled {
 					return false
@@ -308,6 +303,9 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 					return false
 				}
 				return live.Canonical.Spec.UI.Enabled
+			},
+			Mounts: map[string]http.Handler{
+				mcpPath: mcpSrv.Handler(),
 			},
 		})
 		if err != nil {
