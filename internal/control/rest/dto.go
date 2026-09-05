@@ -80,6 +80,19 @@ type resetRequest struct {
 	Reason string `json:"reason"`
 }
 
+type sessionCreateJSON struct {
+	CSRF      string `json:"csrf"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type sessionViewJSON struct {
+	ID        string   `json:"id"`
+	Role      string   `json:"role"`
+	Scopes    []string `json:"scopes"`
+	CSRF      string   `json:"csrf,omitempty"`
+	ExpiresAt string   `json:"expiresAt,omitempty"`
+}
+
 type planJSON struct {
 	PreviousRevision  string            `json:"previousRevision"`
 	CandidateRevision string            `json:"candidateRevision"`
@@ -91,6 +104,7 @@ type planJSON struct {
 	Generation        uint64            `json:"generation,omitempty"`
 	RuntimeRevision   string            `json:"runtimeRevision,omitempty"`
 	StoreGeneration   uint64            `json:"storeGeneration,omitempty"`
+	AuditEventID      string            `json:"auditEventId,omitempty"`
 }
 
 type oidWriteRequest struct {
@@ -210,6 +224,7 @@ func fromApply(r *app.ApplyResult) planJSON {
 	out.Generation = uint64(r.Generation)
 	out.RuntimeRevision = string(r.RuntimeRevision)
 	out.StoreGeneration = r.StoreGeneration
+	out.AuditEventID = r.AuditEventID
 	return out
 }
 

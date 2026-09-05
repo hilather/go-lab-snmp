@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
@@ -51,6 +52,9 @@ type Config struct {
 	RatePerSec        float64
 	RateBurst         float64
 	PublicMetrics     bool
+	Auth              *auth.Verifier
+	Sessions          *auth.Store
+	CookieSecure      bool
 	UI                http.Handler
 	UIEnabled         func() bool
 	Mounts            map[string]http.Handler
@@ -92,6 +96,17 @@ func New(cfg Config) (*Server, error) {
 	if n <= 0 {
 		n = DefaultMaxConcurrent
 	}
+	if cfg.Sessions == nil {
+		cfg.Sessions = auth.NewStore(auth.DefaultSessionConfig())
+	}
+	if cfg.Auth != nil {
+		sessions := cfg.Sessions
+		cfg.Auth.OnIdentityChange(func() {
+			if sessions != nil {
+				sessions.Clear()
+			}
+		})
+	}
 	s := &Server{
 		cfg:      cfg,
 		svc:      cfg.Service,
@@ -101,6 +116,10 @@ func New(cfg Config) (*Server, error) {
 		inflight: make(chan struct{}, n),
 		rate:     newLimiter(cfg.RatePerSec, cfg.RateBurst),
 		addr:     cfg.Addr,
+	}
+	if appSvc, ok := s.svc.(*app.App); ok {
+		appSvc.OnReset(s.reloadAuth)
+		appSvc.OnApply(s.reloadAuth)
 	}
 	if len(cfg.Mounts) > 0 {
 		mux := http.NewServeMux()
@@ -304,14 +323,17 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		actor, err := s.authenticate(r, isHealthCap(rt.cap))
+		skip := s.skipAuth(rt.cap)
+		actor, err := s.authenticate(r, skip)
 		if err != nil {
 			s.writeProblem(w, r, instance, err)
 			return
 		}
-		if err := s.authorize(r, actor, rt.cap); err != nil {
-			s.writeProblem(w, r, instance, err)
-			return
+		if !skip {
+			if err := s.authorize(r, actor, rt.cap); err != nil {
+				s.writeProblem(w, r, instance, err)
+				return
+			}
 		}
 		s.dispatch(w, r, instance, actor, rt, params)
 		return
@@ -325,6 +347,39 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func isHealthCap(cap capabilities.Capability) bool {
 	return cap.ID == capabilities.HealthLive || cap.ID == capabilities.HealthReady
+}
+
+func (s *Server) skipAuth(cap capabilities.Capability) bool {
+	if isHealthCap(cap) {
+		return true
+	}
+	return cap.ID == capabilities.MetricsGet && s.cfg.PublicMetrics
+}
+
+func (s *Server) reloadAuth() {
+	if s.cfg.Auth == nil {
+		return
+	}
+	appSvc, ok := s.svc.(*app.App)
+	if !ok {
+		return
+	}
+	snap := appSvc.Active()
+	if snap == nil || snap.Canonical == nil {
+		return
+	}
+	next, err := auth.FromSpec(snap.Canonical.Spec.Auth)
+	if err != nil {
+		return
+	}
+	if err := next.RequireListen(); err != nil {
+		return
+	}
+	changed := !s.cfg.Auth.Equivalent(next)
+	s.cfg.Auth.Replace(next)
+	if changed && s.cfg.Sessions != nil {
+		s.cfg.Sessions.Clear()
+	}
 }
 
 func (s *Server) dispatchMount(w http.ResponseWriter, r *http.Request, instance string) bool {

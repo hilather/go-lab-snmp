@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
@@ -33,9 +34,6 @@ func (s *App) Reset(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult,
 }
 
 func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult, []func(), error) {
-	_ = ctx
-	_ = actor
-	_ = in
 	prev := s.snaps.Load()
 	gen := model.Generation(0)
 	if prev != nil {
@@ -95,6 +93,18 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		RuntimeRevision: next.Revision,
 		StoreGeneration: s.storeGeneration(),
 	}
+	res.AuditEventID = s.recordAudit(ctx, audit.Event{
+		Time:       s.now(),
+		ActorID:    actor.ID,
+		ActorClass: actor.Class,
+		Transport:  actor.Transport,
+		Capability: "state.reset",
+		Reason:     in.Reason,
+		Revision:   next.Revision,
+		Previous:   revisionOf(displaced),
+		Result:     audit.ResultOK,
+		Diff:       toAuditDiff(diff),
+	})
 	return cloneApply(res), hooks, nil
 }
 

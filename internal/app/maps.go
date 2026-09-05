@@ -142,5 +142,25 @@ func (s *App) ListUsers(ctx context.Context, actor Actor) (*UserList, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &UserList{Items: append([]model.UserSpec(nil), copied.Spec.Users...)}, nil
+	return &UserList{Items: redactUsers(copied.Spec.Users)}, nil
+}
+
+func redactUsers(in []model.UserSpec) []model.UserSpec {
+	out := make([]model.UserSpec, len(in))
+	for i, u := range in {
+		item := model.UserSpec{
+			Name:   u.Name,
+			Level:  u.Level,
+			Access: u.Access,
+			Map:    u.Map,
+		}
+		if u.Auth != nil {
+			item.Auth = &model.USMAuth{Protocol: u.Auth.Protocol, SecretFile: u.Auth.SecretFile}
+		}
+		if u.Priv != nil {
+			item.Priv = &model.USMPriv{Protocol: u.Priv.Protocol, SecretFile: u.Priv.SecretFile}
+		}
+		out[i] = item
+	}
+	return out
 }

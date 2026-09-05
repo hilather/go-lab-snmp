@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/control/rest"
 	"github.com/hilather/go-lab-snmp/internal/model"
@@ -180,13 +181,36 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var restSrv *rest.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	if !mgmtOff {
+		v, vErr := auth.FromSpec(st.Spec.Auth)
+		if vErr != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: auth: %v\n", vErr)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if sink != nil {
+				_ = sink.Shutdown(shctx)
+			}
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
+		if err := v.RequireListen(); err != nil {
+			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			if sink != nil {
+				_ = sink.Shutdown(shctx)
+			}
+			_ = srv.Shutdown(shctx)
+			cancel()
+			return 1
+		}
 		origins := []string{}
 		bodyLimit := config.DefaultBodyLimit
+		publicMetrics := false
 		if st != nil {
 			origins = st.Spec.Management.AllowedOrigins
 			if st.Spec.Management.BodyLimit > 0 {
 				bodyLimit = st.Spec.Management.BodyLimit
 			}
+			publicMetrics = st.Spec.Observability.Metrics.PublicPath
 		}
 		restSrv, err = rest.New(rest.Config{
 			Addr:           flags.ManagementListen,
@@ -194,6 +218,8 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 			AllowedOrigins: origins,
 			MaxBodyBytes:   bodyLimit,
 			RatePerSec:     0,
+			PublicMetrics:  publicMetrics,
+			Auth:           v,
 			Live:           func() bool { return true },
 			Ready: func() bool {
 				if svc.Active() == nil {

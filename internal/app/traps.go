@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
@@ -75,11 +76,18 @@ func (s *App) ClearTraps(ctx context.Context, actor Actor) error {
 	if err := s.requireCtx(ctx); err != nil {
 		return err
 	}
-	_ = actor
 	if s.traps == nil {
 		return nil
 	}
 	s.traps.Clear()
+	s.recordAudit(ctx, audit.Event{
+		Time:       s.now(),
+		ActorID:    actor.ID,
+		ActorClass: actor.Class,
+		Transport:  actor.Transport,
+		Capability: "traps.clear",
+		Result:     audit.ResultOK,
+	})
 	return nil
 }
 

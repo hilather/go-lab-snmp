@@ -1,6 +1,6 @@
 # SEC-001 — Bearer, CSRF, audit
 
-Status: not-started
+Status: done
 Depends: API-001
 Owns: internal/auth, internal/audit
 

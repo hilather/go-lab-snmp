@@ -5,10 +5,10 @@ Owners: Control Plane
 Last reviewed: 2026-09-04
 
 Frozen routes live in `05-control-plane-and-parity.md`.
-`application/problem+json` (RFC 9457). Bearer or session+CSRF
-(SEC-001). Health live/ready is unauthenticated. API-001 ships an
-auth stub so every `/v1` route except that SEC-001 immediately locks
-it; DEP-001 must not ship the stub.
+`application/problem+json` (RFC 9457). Bearer or session+CSRF.
+Health live/ready is unauthenticated. `GET /v1/metrics` is public
+only when `observability.metrics.publicPath` is true. Cookie
+`labsnmp_session` + header `X-LabSNMP-CSRF` on cookie mutations.
 
 `POST /v1/maps/{name}:query` body is `{pdu, oids, nonRepeaters?,
 maxRepetitions?}`. `pdu` is `get`, `getNext`, or `getBulk`. It

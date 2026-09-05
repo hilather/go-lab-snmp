@@ -195,8 +195,21 @@ func TestServeBindsManagementListen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("version %d (SEC-001 must 401 without bearer)", resp.StatusCode)
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://"+mgmt+"/v1/version", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer abcdefghijklmnopqrstuvwxyz123456")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("version %d (auth stub must allow unauthenticated /v1)", resp.StatusCode)
+		t.Fatalf("version with bearer %d", resp.StatusCode)
 	}
 	cancel()
 	select {

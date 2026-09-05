@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
+	"github.com/hilather/go-lab-snmp/internal/model"
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
@@ -30,13 +32,200 @@ func TestHealthUnauthenticated(t *testing.T) {
 	}
 }
 
-func TestV1UnauthenticatedStub(t *testing.T) {
+func TestBearerRequired(t *testing.T) {
 	s, _ := newTestServer(t)
-	req := httptest.NewRequest(http.MethodGet, "/v1/version", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "problem+json") {
+		t.Fatalf("ct %s", ct)
+	}
+	if wa := w.Header().Get("WWW-Authenticate"); !strings.Contains(wa, "Bearer") {
+		t.Fatalf("www-authenticate %s", wa)
+	}
+	body, _ := io.ReadAll(w.Body)
+	if !strings.Contains(string(body), `"code":"unauthenticated"`) {
+		t.Fatalf("%s", body)
+	}
+}
+
+func TestNilVerifierDenies(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{Service: svc, RatePerSec: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("nil verifier must deny, got %d", w.Code)
+	}
+}
+
+func TestNoBasic(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("%d", w.Code)
+	}
+}
+
+func TestCSRFRequiredOnCookieMutation(t *testing.T) {
+	s, _ := newTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/session", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
-		t.Fatalf("auth stub must not 401, got %d", w.Code)
+		t.Fatalf("session create %d %s", w.Code, w.Body.String())
+	}
+	var cookie string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.CookieName {
+			cookie = c.Value
+		}
+	}
+	if cookie == "" {
+		t.Fatal("cookie")
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/state:reset", strings.NewReader(`{"reason":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("csrf missing want 403 got %d %s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/state:reset", strings.NewReader(`{"reason":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(auth.CSRFHeader, "not-the-token")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("bad csrf %d", w.Code)
+	}
+}
+
+func TestAuditAfterReset(t *testing.T) {
+	s, _ := newTestServer(t)
+	resp := doJSON(t, s, http.MethodPost, "/v1/state:reset", `{"reason":"audit"}`)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("reset %d %s", resp.StatusCode, b)
+	}
+	m := decodeMap(t, resp)
+	id, _ := m["auditEventId"].(string)
+	if id == "" {
+		t.Fatalf("auditEventId %v", m)
+	}
+	list := doJSON(t, s, http.MethodGet, "/v1/audit", "")
+	if list.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(list.Body)
+		t.Fatalf("audit %d %s", list.StatusCode, b)
+	}
+	got := decodeMap(t, list)
+	events, _ := got["events"].([]any)
+	if len(events) == 0 {
+		t.Fatal("expected audit events")
+	}
+	first, _ := events[0].(map[string]any)
+	if first["id"] != id || first["capability"] != "state.reset" {
+		t.Fatalf("%v", first)
+	}
+}
+
+func TestUsersListRedacted(t *testing.T) {
+	s, _ := newTestServer(t)
+	resp := doJSON(t, s, http.MethodGet, "/v1/users", "")
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("users %d %s", resp.StatusCode, b)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"name":"alice"`) {
+		t.Fatalf("alice missing: %s", body)
+	}
+	if !strings.Contains(string(body), "testdata/secrets/snmp-alice-auth") {
+		t.Fatalf("secretFile path may appear: %s", body)
+	}
+	if strings.Contains(string(body), "alice-auth-pass") {
+		t.Fatalf("USM secret bytes leaked: %s", body)
+	}
+	if strings.Contains(string(body), testToken) {
+		t.Fatalf("bearer secret leaked: %s", body)
+	}
+}
+
+func TestOriginExactMatch(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{
+		Service:        svc,
+		RatePerSec:     -1,
+		Auth:           auth.Static(testToken, "admin", model.RoleAdministrator),
+		AllowedOrigins: []string{"https://lab.example"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "https://evil.example")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("evil origin %d %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"code":"origin_not_allowed"`) {
+		t.Fatalf("%s", w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "https://lab.example")
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("allowlisted origin %d %s", w.Code, w.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Origin", "http://127.0.0.1:8088")
+	w = httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("loopback origin %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestPublicMetricsSkipsAuth(t *testing.T) {
+	svc := bootTestApp(t)
+	s, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator), PublicMetrics: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code == http.StatusUnauthorized {
+		t.Fatal("publicPath metrics must not 401")
+	}
+	s2, err := New(Config{Service: svc, RatePerSec: -1, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	w = httptest.NewRecorder()
+	s2.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("private metrics %d", w.Code)
 	}
 }
 
@@ -162,7 +351,7 @@ func TestTrapsWaitContract(t *testing.T) {
 
 func TestTrapsWaitSkipsGenericRequestTimeout(t *testing.T) {
 	svc := bootTestApp(t)
-	s, err := New(Config{Service: svc, RatePerSec: -1, RequestTimeout: 40 * time.Millisecond})
+	s, err := New(Config{Service: svc, RatePerSec: -1, RequestTimeout: 40 * time.Millisecond, Auth: auth.Static(testToken, "admin", model.RoleAdministrator)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +385,7 @@ func TestTrapsWaitSkipsGenericRequestTimeout(t *testing.T) {
 func TestStateExportYAMLContract(t *testing.T) {
 	s, _ := newTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/state:export", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
@@ -214,6 +404,7 @@ func TestStateExportYAMLContract(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/state:export?format=json", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
 	w = httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/model"
@@ -77,8 +78,6 @@ func (s *App) Apply(ctx context.Context, actor Actor, in ChangeIn) (*ApplyResult
 }
 
 func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*ApplyResult, []func(), error) {
-	_ = ctx
-	_ = actor
 	if strings.TrimSpace(in.IdempotencyKey) == "" {
 		return nil, nil, domainerr.ValidationFailed("Idempotency-Key is required",
 			domainerr.FieldViolation{Path: "idempotencyKey", Code: "required", Message: "Idempotency-Key is required for apply"})
@@ -100,7 +99,7 @@ func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*Apply
 	if err := s.syncTrapPolicyIfChanged(cand.prev, cand.next); err != nil {
 		return nil, nil, err
 	}
-	_ = s.snaps.Swap(cand.next)
+	prev := s.snaps.Swap(cand.next)
 	res := &ApplyResult{
 		Plan:            *s.planFrom(cand),
 		Applied:         true,
@@ -108,6 +107,18 @@ func (s *App) applyLocked(ctx context.Context, actor Actor, in ChangeIn) (*Apply
 		RuntimeRevision: cand.next.Revision,
 		StoreGeneration: s.storeGeneration(),
 	}
+	res.AuditEventID = s.recordAudit(ctx, audit.Event{
+		Time:       s.now(),
+		ActorID:    actor.ID,
+		ActorClass: actor.Class,
+		Transport:  actor.Transport,
+		Capability: "changes.apply",
+		Reason:     in.Reason,
+		Revision:   cand.next.Revision,
+		Previous:   revisionOf(prev),
+		Result:     audit.ResultOK,
+		Diff:       toAuditDiff(cand.diff),
+	})
 	s.idemp.storeApply(in.IdempotencyKey, fp, res)
 	return cloneApply(res), append([]func(){}, s.applyHooks...), nil
 }

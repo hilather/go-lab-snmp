@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
@@ -57,6 +58,7 @@ type ApplyResult struct {
 	Generation      model.Generation
 	RuntimeRevision model.Revision
 	StoreGeneration uint64
+	AuditEventID    string
 }
 
 // ExportFormat selects canonical YAML or JSON. Comments are never preserved.
@@ -183,15 +185,13 @@ type Stats struct {
 	Queries           int
 }
 
-// AuditQuery is GET /v1/audit. SEC-001 fills the ring.
+// AuditQuery is GET /v1/audit.
 type AuditQuery struct {
 	Limit int
 }
 
-// AuditEvent is one in-memory audit row. SEC-001 owns the fields.
-type AuditEvent struct {
-	ID string `json:"id"`
-}
+// AuditEvent is one mutation or security record.
+type AuditEvent = audit.Event
 
 // AuditList is GET /v1/audit.
 type AuditList struct {

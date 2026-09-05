@@ -42,8 +42,12 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, instance strin
 		s.handlePlan(w, r, instance, ctx, actor)
 	case capabilities.ChangesApply:
 		s.handleApply(w, r, instance, ctx, actor)
-	case capabilities.SessionCreate, capabilities.SessionGet, capabilities.SessionDelete:
-		s.writeProblem(w, r, instance, domainerr.NotFound("session is not implemented until SEC-001"))
+	case capabilities.SessionCreate:
+		s.handleSessionCreate(w, r, instance, actor)
+	case capabilities.SessionGet:
+		s.handleSessionGet(w, r, instance, actor)
+	case capabilities.SessionDelete:
+		s.handleSessionDelete(w, r, instance, actor)
 	case capabilities.StateExport:
 		s.handleExport(w, r, instance, ctx, actor)
 	case capabilities.StateReset:

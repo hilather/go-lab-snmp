@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
@@ -16,7 +17,6 @@ func (s *App) SetOID(ctx context.Context, actor Actor, in OIDSetIn) (*OIDResult,
 	if err := s.requireCtx(ctx); err != nil {
 		return nil, err
 	}
-	_ = actor
 	if in.Map == "" {
 		return nil, domainerr.ValidationFailed("map is required",
 			domainerr.FieldViolation{Path: "map", Code: "required", Message: "map is required"})
@@ -47,6 +47,14 @@ func (s *App) SetOID(ctx context.Context, actor Actor, in OIDSetIn) (*OIDResult,
 	s.overlay.Set(in.Map, oid.String(), val)
 	got := s.readOIDLocked(in.Map, oid)
 	got.Overlay = true
+	s.recordAudit(ctx, audit.Event{
+		Time:       s.now(),
+		ActorID:    actor.ID,
+		ActorClass: actor.Class,
+		Transport:  actor.Transport,
+		Capability: "oids.set",
+		Result:     audit.ResultOK,
+	})
 	return got, nil
 }
 

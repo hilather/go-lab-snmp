@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/buildinfo"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/compiler"
@@ -17,7 +18,10 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/testutil"
 )
 
-const defaultIdempotencyMax = 256
+const (
+	defaultIdempotencyMax = 256
+	defaultAuditMax       = 128
+)
 
 // Options constructs an App.
 type Options struct {
@@ -26,6 +30,8 @@ type Options struct {
 	Clock          testutil.Clock
 	BootstrapPath  string
 	IdempotencyMax int
+	AuditMax       int
+	Auditor        audit.Sink
 	Overlay        *store.Overlay
 	Queries        *store.QueryRing
 	Traps          *store.TrapRing
@@ -45,6 +51,7 @@ type App struct {
 	clock         testutil.Clock
 	bootstrapPath string
 	idemp         *idempCache
+	audit         *audit.Fanout
 	resetHooks    []func()
 	applyHooks    []func()
 	overlay       *store.Overlay
@@ -92,12 +99,17 @@ func New(opts Options) *App {
 	if idempMax <= 0 {
 		idempMax = defaultIdempotencyMax
 	}
+	auditMax := opts.AuditMax
+	if auditMax <= 0 {
+		auditMax = defaultAuditMax
+	}
 	return &App{
 		snaps:         opts.Snapshots,
 		now:           opts.Now,
 		clock:         opts.Clock,
 		bootstrapPath: opts.BootstrapPath,
 		idemp:         newIdempCache(idempMax),
+		audit:         audit.NewFanout(auditMax, opts.Auditor),
 		overlay:       opts.Overlay,
 		queries:       opts.Queries,
 		traps:         opts.Traps,
@@ -297,27 +309,6 @@ func (s *App) Stats(ctx context.Context, actor Actor) (*Stats, error) {
 		out.Queries = s.queries.Len()
 	}
 	return out, nil
-}
-
-func (s *App) QueryAudit(ctx context.Context, actor Actor, q AuditQuery) (*AuditList, error) {
-	if err := s.requireCtx(ctx); err != nil {
-		return nil, err
-	}
-	_ = actor
-	_ = q
-	return &AuditList{Events: []AuditEvent{}}, nil
-}
-
-func (s *App) GetAudit(ctx context.Context, actor Actor, id string) (*AuditEvent, error) {
-	if err := s.requireCtx(ctx); err != nil {
-		return nil, err
-	}
-	_ = actor
-	if id == "" {
-		return nil, domainerr.ValidationFailed("id is required",
-			domainerr.FieldViolation{Path: "id", Code: "required", Message: "id is required"})
-	}
-	return nil, domainerr.NotFound("audit event " + id + " not found")
 }
 
 func (s *App) ConfigSchema(ctx context.Context, actor Actor) ([]byte, error) {

@@ -3,39 +3,85 @@ package rest
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
-	"github.com/hilather/go-lab-snmp/internal/model"
 )
 
-func stubActor() app.Actor {
+func actorOf(p auth.Principal, transport string) app.Actor {
 	return app.Actor{
-		ID:        "anonymous",
-		Class:     "stub",
-		Role:      model.RoleAdministrator,
-		Scopes:    model.ScopesForRole(model.RoleAdministrator),
-		Transport: "rest",
+		ID:        p.ID,
+		Class:     p.Class,
+		Role:      p.Role,
+		Scopes:    append([]string(nil), p.Scopes...),
+		Transport: transport,
 	}
 }
 
 func (s *Server) authenticate(r *http.Request, skip bool) (app.Actor, error) {
-	_ = r
 	if skip {
 		return app.Actor{ID: "probe", Class: "startup", Transport: "rest"}, nil
 	}
-	// Auth is a stub until SEC-001; do not ship this in the image.
-	return stubActor(), nil
+	if s.cfg.Auth == nil {
+		return app.Actor{}, domainerr.Unauthenticated("authentication required")
+	}
+
+	hdr := strings.TrimSpace(r.Header.Get("Authorization"))
+	if hdr != "" {
+		p, err := s.cfg.Auth.Authenticate(auth.Request{
+			Authorization: hdr,
+			RemoteAddr:    r.RemoteAddr,
+		})
+		if err != nil {
+			return app.Actor{}, err
+		}
+		return actorOf(p, "rest"), nil
+	}
+
+	if c, err := r.Cookie(auth.CookieName); err == nil && c.Value != "" && s.cfg.Sessions != nil {
+		sess, _, ok := s.cfg.Sessions.Lookup(c.Value)
+		if ok {
+			return actorOf(auth.PrincipalFromSession(sess), "rest"), nil
+		}
+	}
+
+	p, err := s.cfg.Auth.Authenticate(auth.Request{RemoteAddr: r.RemoteAddr})
+	if err != nil {
+		return app.Actor{}, err
+	}
+	return actorOf(p, "rest"), nil
 }
 
 func (s *Server) authorize(r *http.Request, actor app.Actor, cap capabilities.Capability) error {
-	_ = r
-	_ = actor
-	_ = cap
+	if s.cfg.Auth == nil {
+		return domainerr.Unauthenticated("authentication required")
+	}
+	if err := auth.AuthorizeScopes(actor.Scopes, cap.RequiredScopes); err != nil {
+		return err
+	}
+	if !auth.UnsafeMethod(r.Method) {
+		return nil
+	}
+	if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+		return nil
+	}
+	c, err := r.Cookie(auth.CookieName)
+	if err != nil || c.Value == "" {
+		return nil
+	}
+	if s.cfg.Sessions == nil || !s.cfg.Sessions.ValidCSRF(c.Value, r.Header.Get(auth.CSRFHeader)) {
+		return domainerr.Forbidden("CSRF token is missing or invalid")
+	}
 	return nil
+}
+
+func (s *Server) cookieSecure(r *http.Request) bool {
+	return auth.CookieSecure(r, s.cfg.CookieSecure)
 }
 
 type limiter struct {

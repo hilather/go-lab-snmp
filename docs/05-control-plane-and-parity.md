@@ -15,8 +15,9 @@ Internal registry keys follow the family dotted form of the table
 
 REST_ONLY_PROTOCOL: health live/ready (`health.live`, `health.ready`),
 session (`session.create`/`get`/`delete`), metrics scrape (`metrics.get`),
-SPA. Health live/ready are unauthenticated. Session and metrics wait
-for SEC-001 / OBS-001; SPA waits for UI-001.
+SPA. Health live/ready are unauthenticated. Session is cookie
+`labsnmp_session` + CSRF `X-LabSNMP-CSRF` (SEC-001). Metrics wait
+for OBS-001 (`publicPath` skips auth). SPA waits for UI-001.
 
 PARITY_REQUIRED:
 

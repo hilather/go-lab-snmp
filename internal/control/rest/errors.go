@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/hilather/go-lab-snmp/internal/auth"
 	"github.com/hilather/go-lab-snmp/internal/capabilities"
 	"github.com/hilather/go-lab-snmp/internal/domainerr"
 )
@@ -11,7 +12,9 @@ import (
 func (s *Server) writeProblem(w http.ResponseWriter, r *http.Request, instance string, err error) {
 	p := capabilities.ProblemFrom(err, instance)
 	if p.Status == http.StatusUnauthorized {
-		w.Header().Add("WWW-Authenticate", `Bearer realm="labsnmp"`)
+		for _, v := range auth.WWWAuthenticate() {
+			w.Header().Add("WWW-Authenticate", v)
+		}
 	}
 	body, merr := json.Marshal(p)
 	if merr != nil {

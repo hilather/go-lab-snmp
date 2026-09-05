@@ -53,7 +53,8 @@ labsnmp.dev/v1alpha1 document. serve binds the agent and trap UDP
 sockets. --trap-listen empty uses YAML traps.address; off disables.
 --management-listen defaults off. YAML management.address does not
 bind unless this flag is an address. spec.ui.enabled false keeps
-GET / as 404 problem+json. Auth on /v1 is a stub until SEC-001.
+GET / as 404 problem+json. /v1 requires bearer or labsnmp_session
+except health live/ready (and metrics if publicPath).
 
 Commands:
   version         print build and protocol metadata
