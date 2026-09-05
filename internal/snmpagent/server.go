@@ -8,6 +8,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
+	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
 const (
@@ -18,14 +22,20 @@ const (
 // Config is the UDP/161 listener configuration.
 type Config struct {
 	Addr        string
-	Runtime     *Runtime
+	Store       *snapshot.Store
+	Overlay     *store.Overlay
+	Queries     *store.QueryRing
+	Clock       Clock
 	MaxInflight int
 }
 
 // Server is a unicast SNMPv1/v2c/v3 UDP listener.
 type Server struct {
-	cfg Config
-	rt  *Runtime
+	cfg     Config
+	store   *snapshot.Store
+	overlay *store.Overlay
+	queries *store.QueryRing
+	clock   Clock
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -51,8 +61,11 @@ type Server struct {
 
 // New validates cfg. Start binds and serves.
 func New(cfg Config) (*Server, error) {
-	if cfg.Runtime == nil {
-		return nil, errors.New("snmpagent: Runtime is required")
+	if cfg.Store == nil {
+		return nil, errors.New("snmpagent: Store is required")
+	}
+	if cfg.Store.Load() == nil {
+		return nil, errors.New("snmpagent: snapshot is required")
 	}
 	if cfg.Addr == "" {
 		return nil, errors.New("snmpagent: Addr is required")
@@ -60,22 +73,58 @@ func New(cfg Config) (*Server, error) {
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
 	}
+	if cfg.Overlay == nil {
+		cfg.Overlay = store.NewOverlay()
+	}
+	if cfg.Queries == nil {
+		cfg.Queries = store.NewQueryRing(store.DefaultQueryRing)
+	}
+	snap := cfg.Store.Load()
 	now := time.Now
-	if cfg.Runtime.Clock != nil {
-		clk := cfg.Runtime.Clock
+	clk := cfg.Clock
+	if clk == nil {
+		clk = snap.Clock
+	}
+	if clk != nil {
 		now = clk.Now
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
 		cfg:      cfg,
-		rt:       cfg.Runtime,
+		store:    cfg.Store,
+		overlay:  cfg.Overlay,
+		queries:  cfg.Queries,
+		clock:    clk,
 		ctx:      ctx,
 		cancel:   cancel,
 		bindAddr: cfg.Addr,
 		inflight: make(chan struct{}, cfg.MaxInflight),
-		global:   newQueryLimiter(float64(cfg.Runtime.MaxPerSec), float64(cfg.Runtime.MaxPerSec), now),
-		perIP:    newQueryLimiter(float64(cfg.Runtime.MaxPerIP), float64(cfg.Runtime.MaxPerIP), now),
+		global:   newQueryLimiter(float64(snap.MaxPerSec), float64(snap.MaxPerSec), now),
+		perIP:    newQueryLimiter(float64(snap.MaxPerIP), float64(snap.MaxPerIP), now),
 	}, nil
+}
+
+func (s *Server) view() *Runtime {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	return viewOf(s.store.Load(), s.overlay, s.queries, s.clock)
+}
+
+// Overlay is the process-local SET / oids:set layer shared with app.
+func (s *Server) Overlay() *store.Overlay {
+	if s == nil {
+		return nil
+	}
+	return s.overlay
+}
+
+// Snapshot is the active compiled snapshot, or nil.
+func (s *Server) Snapshot() *snapshot.Snapshot {
+	if s == nil || s.store == nil {
+		return nil
+	}
+	return s.store.Load()
 }
 
 // Start binds ListenPacket("udp") and serves in the background.
@@ -110,10 +159,10 @@ func (s *Server) Bound() bool {
 	return s.udp != nil && s.started && !s.stopped
 }
 
-// Ready is the agent clause: Runtime loaded and agent bound.
+// Ready is the agent clause: snapshot loaded and agent bound.
 // Trap Ready is snmpsink.Server.Ready when traps.enabled / --trap-listen.
 func (s *Server) Ready() bool {
-	return s != nil && s.rt != nil && s.Bound()
+	return s != nil && s.store != nil && s.store.Load() != nil && s.Bound()
 }
 
 // Addr is the bound UDP address, or nil.
@@ -159,9 +208,20 @@ func (s *Server) conn() net.PacketConn {
 	return s.udp
 }
 
+func (s *Server) syncAdmission(rt *Runtime) {
+	if s == nil || rt == nil {
+		return
+	}
+	s.global.setRate(float64(rt.MaxPerSec), float64(rt.MaxPerSec))
+	s.perIP.setRate(float64(rt.MaxPerIP), float64(rt.MaxPerIP))
+}
+
 func (s *Server) serveUDP() {
 	defer s.wg.Done()
-	max := int(s.rt.MaxMessageBytes)
+	max := int(config.DefaultMaxMessageBytes)
+	if snap := s.store.Load(); snap != nil && int(snap.MaxMessageBytes) > max {
+		max = int(snap.MaxMessageBytes)
+	}
 	if max < 1 {
 		max = 64 << 10
 	}

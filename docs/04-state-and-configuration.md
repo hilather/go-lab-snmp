@@ -150,5 +150,12 @@ never. SET overlay does not change revision. `storeGeneration` does.
 `replaceObservability`.
 
 Apply requires `expectedRevision` + `Idempotency-Key`.
+Mismatch returns `revision_mismatch` with `currentRevision`.
 
-Reset: reread bootstrap, drop overlay, wipe traps, swap snapshot.
+`oids:set` body is a single `{oid, value}`. It writes the same SET overlay
+as SNMP SET and is not an apply verb. Overlay does not change revision;
+`storeGeneration` does.
+
+Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
+swap snapshot, increment `storeGeneration`. Never writes the file.
+CLI listen flags still win after Reset.

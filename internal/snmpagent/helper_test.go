@@ -1,15 +1,19 @@
 package snmpagent
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/compiler"
 	"github.com/hilather/go-lab-snmp/internal/config"
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
+	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/testutil"
 )
 
@@ -31,33 +35,45 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-func loadFull(t *testing.T, clk Clock) *Runtime {
+func loadFull(t *testing.T, clk Clock) *snapshot.Snapshot {
 	t.Helper()
 	t.Chdir(repoRoot(t))
-	rt, err := LoadFile("testdata/config/valid/full.yaml", LoadOptions{Clock: clk})
+	st, err := config.LoadFile("testdata/config/valid/full.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rt
+	snap, err := compiler.Compile(st, compiler.CompileOpts{Clock: clockAsTestutil(clk), BaseDir: repoRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snap
 }
 
-func loadYAML(t *testing.T, yaml string, clk Clock) *Runtime {
+func loadYAML(t *testing.T, yaml string, clk Clock) *snapshot.Snapshot {
 	t.Helper()
 	t.Chdir(repoRoot(t))
 	st, err := config.Load([]byte(yaml))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, err := Load(st, LoadOptions{Clock: clk, BaseDir: repoRoot(t)})
+	snap, err := compiler.Compile(st, compiler.CompileOpts{Clock: clockAsTestutil(clk), BaseDir: repoRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rt
+	return snap
 }
 
-func startAgent(t *testing.T, rt *Runtime) *Server {
+func startAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 	t.Helper()
-	s, err := New(Config{Addr: "127.0.0.1:0", Runtime: rt})
+	st := snapshot.NewStore()
+	st.InstallBootstrap(snap)
+	s, err := New(Config{
+		Addr:    "127.0.0.1:0",
+		Store:   st,
+		Overlay: store.NewOverlay(),
+		Queries: store.NewQueryRing(store.DefaultQueryRing),
+		Clock:   snap.Clock,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,6 +86,17 @@ func startAgent(t *testing.T, rt *Runtime) *Server {
 		_ = s.Shutdown(ctx)
 	})
 	return s
+}
+
+func readTrimmed(path, baseDir string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil && baseDir != "" {
+		b, err = os.ReadFile(filepath.Join(baseDir, path))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return bytes.TrimSpace(b), nil
 }
 
 func dst(s *Server) string {
@@ -98,6 +125,20 @@ func getResp(t *testing.T, s *Server, ver snmpwire.Version, community string, o 
 func fakeClock() *testutil.FakeClock {
 	return testutil.NewFakeClock(time.Unix(1_700_000_000, 0))
 }
+
+func clockAsTestutil(clk Clock) testutil.Clock {
+	if clk == nil {
+		return nil
+	}
+	if tclk, ok := clk.(testutil.Clock); ok {
+		return tclk
+	}
+	return clockShim{clk}
+}
+
+type clockShim struct{ Clock }
+
+func (c clockShim) Now() time.Time { return c.Clock.Now() }
 
 const rwYAML = `
 apiVersion: labsnmp.dev/v1alpha1

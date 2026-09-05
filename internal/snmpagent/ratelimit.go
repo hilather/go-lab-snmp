@@ -32,6 +32,22 @@ func newQueryLimiter(rate, burst float64, now func() time.Time) *queryLimiter {
 	return &queryLimiter{rate: rate, burst: burst, now: now, buckets: map[string]*qbucket{}}
 }
 
+func (l *queryLimiter) setRate(rate, burst float64) {
+	if l == nil {
+		return
+	}
+	if rate <= 0 {
+		rate = 1
+	}
+	if burst <= 0 {
+		burst = rate
+	}
+	l.mu.Lock()
+	l.rate = rate
+	l.burst = burst
+	l.mu.Unlock()
+}
+
 func (l *queryLimiter) allow(key string) bool {
 	if l == nil {
 		return true

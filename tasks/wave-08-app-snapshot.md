@@ -1,6 +1,6 @@
 # APP-001 — Snapshot, plan/apply/reset, overlay
 
-Status: not-started
+Status: in-progress
 Depends: CFG-001, MAP-001, TRAP-001
 Owns: internal/app, internal/compiler, internal/snapshot, overlay
 

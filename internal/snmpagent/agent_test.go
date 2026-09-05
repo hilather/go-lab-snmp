@@ -8,6 +8,7 @@ import (
 
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 	"github.com/hilather/go-lab-snmp/internal/usm"
@@ -90,7 +91,7 @@ func TestUptimeFakeClock(t *testing.T) {
 	if p == nil || p.VarBinds[0].Value.Type != snmpwire.TypeTimeTicks || p.VarBinds[0].Value.Uint != 100 {
 		t.Fatalf("uptime 1s: %+v", p)
 	}
-	s.rt.Overlay.Set("rw", "1.3.6.1.2.1.1.3.0", mibtree.Value{Type: model.TypeTimeTicks, Unsigned: 999})
+	s.Overlay().Set("rw", "1.3.6.1.2.1.1.3.0", mibtree.Value{Type: model.TypeTimeTicks, Unsigned: 999})
 	m = getResp(t, s, snmpwire.VersionV2c, "public", sysUpTime())
 	p = m.RequestPDU()
 	if p.VarBinds[0].Value.Uint != 100 {
@@ -109,8 +110,8 @@ func TestReadCommunityForbidsSet(t *testing.T) {
 	if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNoAccess || p.ErrorIndex != 1 {
 		t.Fatalf("read community SET: %+v", p)
 	}
-	if s.rt.Overlay.Generation() != 0 {
-		t.Fatalf("overlay gen=%d", s.rt.Overlay.Generation())
+	if s.Overlay().Generation() != 0 {
+		t.Fatalf("overlay gen=%d", s.Overlay().Generation())
 	}
 }
 
@@ -125,7 +126,7 @@ func TestTwoPhaseSET(t *testing.T) {
 	if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNotWritable || p.ErrorIndex != 2 {
 		t.Fatalf("phase1: %+v", p)
 	}
-	if s.rt.Overlay.Generation() != 0 {
+	if s.Overlay().Generation() != 0 {
 		t.Fatal("failed SET must write nothing")
 	}
 	got := getResp(t, s, snmpwire.VersionV2c, "private", ifOper())
@@ -141,8 +142,8 @@ func TestTwoPhaseSET(t *testing.T) {
 	if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNoError {
 		t.Fatalf("phase2: %+v", p)
 	}
-	if s.rt.Overlay.Generation() != 1 {
-		t.Fatalf("gen=%d want 1", s.rt.Overlay.Generation())
+	if s.Overlay().Generation() != 1 {
+		t.Fatalf("gen=%d want 1", s.Overlay().Generation())
 	}
 	got = getResp(t, s, snmpwire.VersionV2c, "private", ifOper())
 	if got.RequestPDU().VarBinds[0].Value.Int != 2 {
@@ -242,8 +243,10 @@ func TestUnmapIPv4MappedIntoLoopbackCIDR(t *testing.T) {
 		t.Fatal("Unmap(::ffff:127.0.0.1) must match 127.0.0.0/8")
 	}
 
-	rt := loadFull(t, nil)
-	s, err := New(Config{Addr: "127.0.0.1:0", Runtime: rt})
+	snap := loadFull(t, nil)
+	st := snapshot.NewStore()
+	st.InstallBootstrap(snap)
+	s, err := New(Config{Addr: "127.0.0.1:0", Store: st})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +255,7 @@ func TestUnmapIPv4MappedIntoLoopbackCIDR(t *testing.T) {
 	if !ip.Is4() || ip.String() != "127.0.0.1" {
 		t.Fatalf("peerAddr Unmap = %v", ip)
 	}
-	if !s.allowed(ip) {
+	if !s.allowed(s.view(), ip) {
 		t.Fatal("mapped loopback must be admitted to 127.0.0.0/8")
 	}
 }
@@ -305,10 +308,10 @@ func TestManagementOffStillAnswers(t *testing.T) {
 
 func TestV3DiscoveryAndGET(t *testing.T) {
 	clk := fakeClock()
-	rt := loadYAML(t, rwYAML, clk)
-	s := startAgent(t, rt)
+	snap := loadYAML(t, rwYAML, clk)
+	s := startAgent(t, snap)
 	client, err := usm.New(usm.Config{
-		EngineID:    rt.Engine.ID(),
+		EngineID:    snap.Engine.ID(),
 		EngineBoots: 1,
 		Clock:       clk,
 	})
@@ -387,7 +390,7 @@ func TestV3DiscoveryAndGET(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened := rt.Engine.Open(rawResp, decoded)
+	opened := snap.Engine.Open(rawResp, decoded)
 	if opened.Incoming == nil {
 		t.Fatalf("open response: drop=%v report=%d", opened.Drop, len(opened.Report))
 	}

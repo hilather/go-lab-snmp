@@ -7,13 +7,14 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/hilather/go-lab-snmp/internal/app"
 	"github.com/hilather/go-lab-snmp/internal/config"
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/snapshot"
 	"github.com/hilather/go-lab-snmp/internal/snmpagent"
 	"github.com/hilather/go-lab-snmp/internal/snmpsink"
 	"github.com/hilather/go-lab-snmp/internal/store"
@@ -102,20 +103,25 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		return 2
 	}
 
-	st, warns, err := config.LoadFileWithWarnings(flags.Config)
+	svc, err := app.Boot(ctx, app.Options{
+		BootstrapPath:      flags.Config,
+		SNMPListenOverride: flags.SNMPListen,
+		TrapListenOverride: flags.TrapListen,
+		MgmtListenOverride: flags.ManagementListen,
+	})
 	if err != nil {
 		printDomainError(stderr, "labsnmp serve", err)
 		return 1
 	}
-	for _, w := range warns {
-		_, _ = fmt.Fprintf(stderr, "warning %s: %s\n", w.Path, w.Message)
-	}
-
-	rt, err := snmpagent.Load(st, snmpagent.LoadOptions{BaseDir: filepath.Dir(flags.Config)})
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+	snap := svc.Active()
+	if snap == nil || snap.Canonical == nil {
+		_, _ = fmt.Fprintln(stderr, "labsnmp serve: compile produced no snapshot")
 		return 1
 	}
+	for _, w := range snap.Warnings {
+		_, _ = fmt.Fprintf(stderr, "warning %s: %s\n", w.Path, w.Message)
+	}
+	st := snap.Canonical
 
 	addr := strings.TrimSpace(flags.SNMPListen)
 	switch {
@@ -133,7 +139,13 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		}
 	}
 
-	srv, err := snmpagent.New(snmpagent.Config{Addr: addr, Runtime: rt})
+	srv, err := snmpagent.New(snmpagent.Config{
+		Addr:    addr,
+		Store:   svc.Snapshots(),
+		Overlay: svc.Overlay(),
+		Queries: svc.Queries(),
+		Clock:   snap.Clock,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 		return 1
@@ -147,7 +159,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	var sink *snmpsink.Server
 	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
 	if trapOn {
-		sink, err = newTrapSink(trapAddr, st, rt)
+		sink, err = newTrapSink(trapAddr, snap, svc.Traps())
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -190,15 +202,17 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	return 0
 }
 
-func newTrapSink(addr string, st *model.State, rt *snmpagent.Runtime) (*snmpsink.Server, error) {
-	ring := store.NewTrapRing(store.TrapPolicy{
-		MaxMessages: st.Spec.Traps.MaxMessages,
-		MaxBytes:    st.Spec.Traps.MaxBytes,
-		FullPolicy:  st.Spec.Traps.FullPolicy,
-		MaxWait:     st.Spec.Traps.MaxWait,
-	})
-	comms := make(map[string]*snmpsink.Community, len(rt.Communities))
-	for k, c := range rt.Communities {
+func newTrapSink(addr string, snap *snapshot.Snapshot, ring *store.TrapRing) (*snmpsink.Server, error) {
+	if ring == nil {
+		ring = store.NewTrapRing(store.TrapPolicy{
+			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
+			MaxBytes:    snap.Canonical.Spec.Traps.MaxBytes,
+			FullPolicy:  snap.Canonical.Spec.Traps.FullPolicy,
+			MaxWait:     snap.Canonical.Spec.Traps.MaxWait,
+		})
+	}
+	comms := make(map[string]*snmpsink.Community, len(snap.Communities))
+	for k, c := range snap.Communities {
 		vers := make(map[string]bool, len(c.Versions))
 		for vk, vv := range c.Versions {
 			vers[vk] = vv
@@ -209,22 +223,31 @@ func newTrapSink(addr string, st *model.State, rt *snmpagent.Runtime) (*snmpsink
 			Versions: vers,
 		}
 	}
-	agentVers := make(map[string]bool, len(rt.Versions))
-	for vk, vv := range rt.Versions {
+	agentVers := make(map[string]bool, len(snap.Versions))
+	for vk, vv := range snap.Versions {
 		agentVers[vk] = vv
 	}
 	return snmpsink.New(snmpsink.Config{
 		Addr:                  addr,
 		Store:                 ring,
 		Communities:           comms,
-		Engine:                rt.Engine,
+		Engine:                snap.Engine,
 		Versions:              agentVers,
-		AcceptUnauthenticated: st.Spec.Traps.AcceptUnauthenticated,
-		RawRetain:             st.Spec.Traps.RawRetain,
-		MaxMessageBytes:       rt.MaxMessageBytes,
-		Allow:                 rt.Allow,
-		MaxPerSec:             rt.MaxPerSec,
-		MaxPerIP:              rt.MaxPerIP,
-		Clock:                 rt.Clock,
+		AcceptUnauthenticated: snap.AcceptUnauthenticated,
+		RawRetain:             snap.RawRetain,
+		MaxMessageBytes:       snap.MaxMessageBytes,
+		Allow:                 snap.Allow,
+		MaxPerSec:             snap.MaxPerSec,
+		MaxPerIP:              snap.MaxPerIP,
+		Clock:                 sinkClock{snap.Clock},
 	})
+}
+
+type sinkClock struct{ snapshot.Clock }
+
+func (c sinkClock) Now() time.Time {
+	if c.Clock == nil {
+		return time.Now()
+	}
+	return c.Clock.Now()
 }

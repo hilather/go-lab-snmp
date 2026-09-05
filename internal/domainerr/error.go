@@ -103,6 +103,10 @@ func RevisionConflict(message, currentRevision string) *Error {
 	return New(CodeRevisionConflict, message).WithRevision(currentRevision)
 }
 
+func RevisionMismatch(message, currentRevision string) *Error {
+	return New(CodeRevisionMismatch, message).WithRevision(currentRevision)
+}
+
 func IdempotencyConflict(message string) *Error {
 	return New(CodeIdempotencyConflict, message)
 }

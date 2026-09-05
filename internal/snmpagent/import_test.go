@@ -20,7 +20,6 @@ func TestNoForbiddenImports(t *testing.T) {
 		"github.com/k-sone/snmpgo",
 		"github.com/hilather/go-lab-snmp/internal/app",
 		"github.com/hilather/go-lab-snmp/internal/compiler",
-		"github.com/hilather/go-lab-snmp/internal/snapshot",
 		"github.com/hilather/go-lab-snmp/internal/control",
 		"github.com/hilather/go-lab-snmp/internal/web",
 		"net/http",

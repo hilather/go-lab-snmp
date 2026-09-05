@@ -23,18 +23,18 @@ func peerAddr(addr net.Addr) netip.Addr {
 	return ap.Addr().Unmap()
 }
 
-func (s *Server) allowed(ip netip.Addr) bool {
-	if s == nil || s.rt == nil {
+func (s *Server) allowed(rt *Runtime, ip netip.Addr) bool {
+	if s == nil || rt == nil {
 		return false
 	}
 	if !ip.IsValid() {
 		return false
 	}
 	ip = ip.Unmap()
-	if len(s.rt.Allow) == 0 {
+	if len(rt.Allow) == 0 {
 		return ip.IsLoopback()
 	}
-	for _, p := range s.rt.Allow {
+	for _, p := range rt.Allow {
 		if p.Contains(ip) {
 			return true
 		}
