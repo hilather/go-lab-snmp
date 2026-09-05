@@ -1,8 +1,12 @@
 # Known limitations (1.1)
 
 Residual 1.1 surface. RFC 3430 TCP and a DTLS 1.2 record layer are
-schema-legal (`tcp.enabled` / `dtls.enabled` validate); those
-listeners do not bind until later 1.1 PRs.
+schema-legal (`tcp.enabled` / `dtls.enabled` validate). Agent TCP and
+DTLS bind through the agent and Reset-driven Sync. Process `serve`
+still starts UDP-only until serve flags bind TCP/DTLS at startup.
+Trap TCP/DTLS bind on the trap plane. pion/dtls v3.1.8 cannot
+round-trip DTLS application records ≳8KiB (no application-data
+fragmentation; 8192-byte inbound buffer).
 
 - Not a production agent. Not snmpd. Not a manager.
 - No SMIv2 compiler. Numeric OIDs + optional aliases.
@@ -10,7 +14,9 @@ listeners do not bind until later 1.1 PRs.
   AES-192/256 are `usm_alg_unsupported`.
 - No AgentX. No trap forward or originate.
 - DTLS is a record layer on IANA 10161/10162; inner PDU is community
-  or USM. **TLSTM/TSM is not implemented.**
+  or USM. **TLSTM/TSM is not implemented.** pion/dtls v3.1.8 does
+  not fragment DTLS application data and reads UDP into 8192 bytes,
+  so a ≥8KiB SNMP Response cannot round-trip on DTLS.
 - RFC 6353 TLS-over-TCP (snmp-tls) is residual. No `spec.listeners.tls`.
   Catalog code `tls_unsupported` is retained for that residual and is
   not emitted on `tcp`/`dtls` enable.

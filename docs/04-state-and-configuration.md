@@ -47,8 +47,9 @@ spec: { ... }
 UDP listener is off. `dtls.enabled: true` requires `certFile` and
 `keyFile` (resolved CWD then the config directory, then
 `tls.LoadX509KeyPair`). There is no `spec.listeners.tls`. These keys
-are schema-legal in 1.1; data-plane TCP/DTLS listeners bind in later
-PRs.
+are schema-legal in 1.1. Agent TCP/DTLS bind through the agent and
+Reset Sync. Serve's initial bind set is still UDP until serve flags
+land. Trap TCP/DTLS bind on the trap plane.
 
 ### spec.auth
 

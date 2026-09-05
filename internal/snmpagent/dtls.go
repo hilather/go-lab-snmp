@@ -28,8 +28,8 @@ var dtlsAllowlist = []dtls.CipherSuiteID{
 }
 
 // ListenDTLS binds a DTLS 1.2 listener without swapping it into service.
-// Certs come from the live snapshot; CIDR admission uses live prefixes.
-func (s *Server) ListenDTLS(addr string) (net.Listener, error) {
+// Cert paths come from the caller (candidate snapshot); CIDR uses live prefixes.
+func (s *Server) ListenDTLS(addr, certFile, keyFile, clientCAFile string) (net.Listener, error) {
 	if s == nil {
 		return nil, errors.New("snmpagent: nil server")
 	}
@@ -37,7 +37,7 @@ func (s *Server) ListenDTLS(addr string) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("snmpagent: dtls listen: %w", err)
 	}
-	opts, err := s.dtlsServerOptions()
+	opts, err := s.dtlsServerOptions(certFile, keyFile, clientCAFile)
 	if err != nil {
 		return nil, err
 	}
@@ -48,16 +48,12 @@ func (s *Server) ListenDTLS(addr string) (net.Listener, error) {
 	return ln, nil
 }
 
-func (s *Server) dtlsServerOptions() ([]dtls.ServerOption, error) {
-	snap := s.store.Load()
-	if snap == nil {
-		return nil, errors.New("snmpagent: snapshot is required")
-	}
-	certPath, err := config.ResolveFileRef(snap.DTLSCertFile, s.cfg.BaseDir)
+func (s *Server) dtlsServerOptions(certFile, keyFile, clientCAFile string) ([]dtls.ServerOption, error) {
+	certPath, err := config.ResolveFileRef(certFile, s.cfg.BaseDir)
 	if err != nil {
 		return nil, fmt.Errorf("snmpagent: dtls certFile: %w", err)
 	}
-	keyPath, err := config.ResolveFileRef(snap.DTLSKeyFile, s.cfg.BaseDir)
+	keyPath, err := config.ResolveFileRef(keyFile, s.cfg.BaseDir)
 	if err != nil {
 		return nil, fmt.Errorf("snmpagent: dtls keyFile: %w", err)
 	}
@@ -71,8 +67,8 @@ func (s *Server) dtlsServerOptions() ([]dtls.ServerOption, error) {
 		dtls.WithCipherSuites(dtlsAllowlist...),
 		dtls.WithOnConnectionAttempt(s.dtlsAdmit),
 	}
-	if snap.DTLSClientCAFile != "" {
-		pool, err := loadClientCAs(snap.DTLSClientCAFile, s.cfg.BaseDir)
+	if clientCAFile != "" {
+		pool, err := loadClientCAs(clientCAFile, s.cfg.BaseDir)
 		if err != nil {
 			return nil, err
 		}
@@ -169,6 +165,9 @@ func (s *Server) serveDTLSConn(conn net.Conn) {
 	cancel()
 	if err != nil {
 		return
+	}
+	if s.observeWrite != nil {
+		conn = writeObserveConn{Conn: conn, observe: s.observeWrite}
 	}
 	sink := streamReply{conn: conn, tcp: false}
 	max := s.maxMessageBytes()

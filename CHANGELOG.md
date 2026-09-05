@@ -9,7 +9,7 @@ All notable user-visible and operator-visible changes are recorded here.
 - Agent RFC 3430 TCP and DTLS 1.2 record-layer listeners
   (`internal/snmpagent`). pion/dtls v3.1.8 with AEAD cipher suites,
   live CIDR admission, and BER TCP framing. TCP-only (UDP off) is
-  supported. Trap TCP/DTLS still later (TRAP-110).
+  supported. Trap TCP/DTLS bind on the trap plane, not here.
 - v1.1 residual increment design (`IMPLEMENTATION-DESIGN-v1.1.md`),
   ADR 0016 (RFC 3430 TCP BER-length framing; DTLS 1.2 record layer on
   10161/10162, not TLSTM/TSM), and the v1.1 task board (FND-110).

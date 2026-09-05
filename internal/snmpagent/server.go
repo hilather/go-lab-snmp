@@ -77,6 +77,8 @@ type Server struct {
 	Admission atomic.Int64
 	Dropped   atomic.Int64
 	Served    atomic.Int64
+
+	observeWrite func([]byte, error)
 }
 
 // New validates cfg. Start binds and serves.

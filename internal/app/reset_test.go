@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -270,8 +271,46 @@ func TestResetDTLSDesiredFromNext(t *testing.T) {
 	if got.AgentDTLS != ":10161" || got.TrapDTLS != ":10162" {
 		t.Fatalf("dtls desired from next: %+v", got)
 	}
+	if got.DTLSCertFile == "" || got.DTLSKeyFile == "" {
+		t.Fatalf("dtls creds from next: %+v", got)
+	}
 	if got.AgentTCP != "" {
 		t.Fatalf("tcp off: %+v", got)
+	}
+}
+
+func TestResetDTLSCredsFromNextNotActive(t *testing.T) {
+	path := copyNamed(t, "full.yaml")
+	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(svc.Close)
+	if svc.Active().DTLSCertFile != "" {
+		t.Fatal("full.yaml must not compile DTLS certs")
+	}
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", "dtls-enabled.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var got DesiredListeners
+	var certDuring string
+	svc.SetDataPlaneSync(func(desired DesiredListeners) error {
+		got = desired
+		certDuring = svc.Active().DTLSCertFile
+		return nil
+	})
+	if _, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "enable-dtls"}); err != nil {
+		t.Fatal(err)
+	}
+	if certDuring != "" {
+		t.Fatalf("hook must run before Swap: active cert=%q", certDuring)
+	}
+	if got.AgentDTLS == "" || got.DTLSCertFile == "" || got.DTLSKeyFile == "" {
+		t.Fatalf("creds must come from next: %+v", got)
 	}
 }
 

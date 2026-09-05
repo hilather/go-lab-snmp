@@ -31,7 +31,7 @@ func (d *dataPlane) last() app.DesiredListeners {
 // Sync binds every new address before closing any old socket.
 // A failed new bind rolls back sockets opened in this call; the previous
 // listeners keep serving. Empty desired address stops that listener.
-// Trap TCP/DTLS binds are not in this increment.
+// Trap TCP/DTLS are bound by the trap plane, not here.
 func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	if d == nil {
 		return fmt.Errorf("dataplane: nil")
@@ -97,8 +97,11 @@ func (d *dataPlane) Sync(desired app.DesiredListeners) error {
 	}
 
 	agentDTLSBound := d.agent != nil && d.agent.BoundDTLS()
-	if desired.AgentDTLS != "" && (desired.AgentDTLS != d.bound.AgentDTLS || !agentDTLSBound) {
-		ln, err := d.agent.ListenDTLS(desired.AgentDTLS)
+	dtlsCredsChanged := desired.DTLSCertFile != d.bound.DTLSCertFile ||
+		desired.DTLSKeyFile != d.bound.DTLSKeyFile ||
+		desired.DTLSClientCAFile != d.bound.DTLSClientCAFile
+	if desired.AgentDTLS != "" && (desired.AgentDTLS != d.bound.AgentDTLS || !agentDTLSBound || dtlsCredsChanged) {
+		ln, err := d.agent.ListenDTLS(desired.AgentDTLS, desired.DTLSCertFile, desired.DTLSKeyFile, desired.DTLSClientCAFile)
 		if err != nil {
 			rollback()
 			return fmt.Errorf("snmpagent: dtls listen: %w", err)

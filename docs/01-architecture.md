@@ -58,7 +58,7 @@ SUT DTLS/10161 --> snmpagent ListenWithOptions (DTLS 1.2 record layer)
                      |                |
                      |                v
                      |          snmpwire.Encode Response
-                     |          replySink: WriteTo / WriteTCP / Write
+                     |          WriteTo / WriteTCP / Write
                      |
 SUT UDP/162 --> snmpsink --> decode --> store.Insert
                      |                    (INFORM -> WriteTo source)

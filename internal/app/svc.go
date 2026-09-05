@@ -235,6 +235,8 @@ type DesiredListeners struct {
 	AgentUDP, TrapUDP   string
 	AgentTCP, TrapTCP   string
 	AgentDTLS, TrapDTLS string
+	// DTLS cert paths are filled from the candidate snapshot, not Active().
+	DTLSCertFile, DTLSKeyFile, DTLSClientCAFile string
 }
 
 // SetDataPlaneSync installs the bind-all-new hook. fn must bind from

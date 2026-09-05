@@ -31,6 +31,19 @@ type streamReply struct {
 	tcp  bool
 }
 
+type writeObserveConn struct {
+	net.Conn
+	observe func([]byte, error)
+}
+
+func (c writeObserveConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if c.observe != nil {
+		c.observe(p, err)
+	}
+	return n, err
+}
+
 func (r streamReply) Write(p []byte) error {
 	if r.conn == nil {
 		return net.ErrClosed

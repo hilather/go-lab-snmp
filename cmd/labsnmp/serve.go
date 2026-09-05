@@ -178,6 +178,7 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		Clock:   snap.Clock,
 		Metrics: metrics,
 		Logger:  logger,
+		BaseDir: filepath.Dir(flags.Config),
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)

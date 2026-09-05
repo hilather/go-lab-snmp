@@ -295,7 +295,11 @@ func TestDataPlaneSyncDTLS(t *testing.T) {
 		_ = agent.Shutdown(ctx)
 	})
 	dtlsAddr := freeUDPAddr(t)
-	if err := dp.Sync(app.DesiredListeners{AgentDTLS: dtlsAddr}); err != nil {
+	if err := dp.Sync(app.DesiredListeners{
+		AgentDTLS:    dtlsAddr,
+		DTLSCertFile: snap.DTLSCertFile,
+		DTLSKeyFile:  snap.DTLSKeyFile,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if !agent.BoundDTLS() {

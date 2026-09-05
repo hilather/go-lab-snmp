@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -673,6 +674,19 @@ func TestDTLSGETPublicSysDescr(t *testing.T) {
 	}
 }
 
+func TestListenDTLSUsesPassedCredsNotSnapshot(t *testing.T) {
+	snap := loadYAML(t, rwYAML, nil)
+	if snap.DTLSCertFile != "" {
+		t.Fatal("fixture must not carry DTLS certs")
+	}
+	s := newUnstarted(t, snap)
+	ln, err := s.ListenDTLS("127.0.0.1:0", "testdata/certs/lab.pem", "testdata/certs/lab-key.pem", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ln.Close()
+}
+
 func TestDTLSGETLargeOctetString(t *testing.T) {
 	snap := loadYAML(t, dtlsBigYAML(), nil)
 	tree := snap.Maps["rw"]
@@ -684,6 +698,17 @@ func TestDTLSGETLargeOctetString(t *testing.T) {
 		t.Fatalf("compiled octet-string len=%d", n)
 	}
 	s := startDTLSAgent(t, snap)
+	var (
+		mu       sync.Mutex
+		wrote    []byte
+		writeErr error
+	)
+	s.observeWrite = func(p []byte, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		wrote = append([]byte(nil), p...)
+		writeErr = err
+	}
 	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, sysDescr())
 	raddr, err := net.ResolveUDPAddr("udp", dstDTLS(s))
 	if err != nil {
@@ -713,6 +738,15 @@ func TestDTLSGETLargeOctetString(t *testing.T) {
 	}
 	if s.Served.Load() < 1 {
 		t.Fatalf("server must Write a large Response served=%d dropped=%d", s.Served.Load(), s.Dropped.Load())
+	}
+	mu.Lock()
+	n, err := len(wrote), writeErr
+	mu.Unlock()
+	if err != nil {
+		t.Fatalf("DTLS Write: %v", err)
+	}
+	if n < 8192 {
+		t.Fatalf("DTLS Write len=%d want >=8192", n)
 	}
 }
 

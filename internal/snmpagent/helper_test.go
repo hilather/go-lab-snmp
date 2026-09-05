@@ -136,7 +136,7 @@ func startTCPAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 func startDTLSAgent(t *testing.T, snap *snapshot.Snapshot) *Server {
 	t.Helper()
 	s := newUnstarted(t, snap)
-	ln, err := s.ListenDTLS("127.0.0.1:0")
+	ln, err := s.ListenDTLS("127.0.0.1:0", snap.DTLSCertFile, snap.DTLSKeyFile, snap.DTLSClientCAFile)
 	if err != nil {
 		t.Fatal(err)
 	}
