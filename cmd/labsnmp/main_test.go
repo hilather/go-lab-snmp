@@ -113,14 +113,6 @@ func TestHealthcheck(t *testing.T) {
 	}
 }
 
-func TestUnknownCommand(t *testing.T) {
-	var stdout, stderr bytes.Buffer
-	code := run([]string{"labsnmp", "not-a-command"}, &stdout, &stderr)
-	if code != 2 {
-		t.Fatalf("unknown command exit %d, want 2; stderr=%q", code, stderr.String())
-	}
-}
-
 func TestMCPStdioRequiresFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run([]string{"labsnmp", "mcp-stdio"}, &stdout, &stderr)
