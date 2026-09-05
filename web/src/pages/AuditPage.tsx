@@ -3,6 +3,7 @@ import { APIError, listAudit } from "../api/client";
 import type { AuditEvent } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_AUDIT } from "../auth/scopes";
+import { EmptyState } from "../ui/empty";
 
 export function AuditPage() {
   const { hasScope } = useAuth();
@@ -59,34 +60,39 @@ export function AuditPage() {
           {error}
         </p>
       ) : null}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Actor</th>
-            <th>Capability</th>
-            <th>Result</th>
-            <th>Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items ?? []).map((e) => (
-            <tr key={e.id}>
-              <td>
-                <code>{e.time ?? "—"}</code>
-              </td>
-              <td>{e.actorId || "—"}</td>
-              <td>
-                <code>{e.capability || "—"}</code>
-              </td>
-              <td>
-                <span className="chip">{e.result || "—"}</span>
-              </td>
-              <td>{e.reason || "—"}</td>
+      {(items ?? []).length === 0 ? (
+        <EmptyState>No audit events in the in-memory ring.</EmptyState>
+      ) : (
+        <table className="data">
+          <caption>In-memory audit ring.</caption>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Actor</th>
+              <th>Capability</th>
+              <th>Result</th>
+              <th>Reason</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(items ?? []).map((e) => (
+              <tr key={e.id}>
+                <td>
+                  <code>{e.time ?? "—"}</code>
+                </td>
+                <td>{e.actorId || "—"}</td>
+                <td>
+                  <code>{e.capability || "—"}</code>
+                </td>
+                <td>
+                  <span className="chip">{e.result || "—"}</span>
+                </td>
+                <td>{e.reason || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </main>
   );
 }

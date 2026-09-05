@@ -2,6 +2,7 @@ import { render, type RenderOptions } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import type { ReactElement, ReactNode } from "react";
 import { clearMemoryCSRF, setMemoryCSRF } from "../api/client";
+import { assertNoTokenStorage } from "../api/storage";
 import type { SessionView } from "../api/types";
 import { AuthProvider } from "../auth/AuthProvider";
 
@@ -62,7 +63,11 @@ export function renderApp(
 }
 
 export function resetClientState(): void {
-  clearMemoryCSRF();
-  localStorage.clear();
-  sessionStorage.clear();
+  try {
+    assertNoTokenStorage();
+  } finally {
+    clearMemoryCSRF();
+    localStorage.clear();
+    sessionStorage.clear();
+  }
 }

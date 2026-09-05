@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { APIError, listCommunities } from "../api/client";
 import type { CommunitySpec } from "../api/types";
+import { EmptyState } from "../ui/empty";
 
 export function CommunitiesPage() {
   const [items, setItems] = useState<CommunitySpec[] | null>(null);
@@ -42,32 +43,37 @@ export function CommunitiesPage() {
           {error}
         </p>
       ) : null}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>communityFile</th>
-            <th>Versions</th>
-            <th>Access</th>
-            <th>Map</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items ?? []).map((c) => (
-            <tr key={c.name}>
-              <td>{c.name}</td>
-              <td>
-                <code>{c.communityFile}</code>
-              </td>
-              <td>{(c.versions ?? []).join(", ") || "—"}</td>
-              <td>
-                <span className="chip">{c.access}</span>
-              </td>
-              <td>{c.map}</td>
+      {(items ?? []).length === 0 ? (
+        <EmptyState>No communities in the live snapshot.</EmptyState>
+      ) : (
+        <table className="data">
+          <caption>Communities in the live snapshot.</caption>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>communityFile</th>
+              <th>Versions</th>
+              <th>Access</th>
+              <th>Map</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(items ?? []).map((c) => (
+              <tr key={c.name}>
+                <td>{c.name}</td>
+                <td>
+                  <code>{c.communityFile}</code>
+                </td>
+                <td>{(c.versions ?? []).join(", ") || "—"}</td>
+                <td>
+                  <span className="chip">{c.access}</span>
+                </td>
+                <td>{c.map}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </main>
   );
 }

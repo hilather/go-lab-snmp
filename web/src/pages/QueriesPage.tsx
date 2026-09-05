@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { APIError, listQueries } from "../api/client";
 import type { QueryEntry } from "../api/types";
+import { EmptyState } from "../ui/empty";
 
 const POLL_MS = 5000;
 
@@ -50,28 +51,33 @@ export function QueriesPage() {
           {error}
         </p>
       ) : null}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>Identity</th>
-            <th>Decision</th>
-            <th>Error status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items ?? []).map((q, i) => (
-            <tr key={`${q.type}-${q.identity}-${i}`}>
-              <td>
-                <span className="chip">{q.type}</span>
-              </td>
-              <td>{q.identity || "—"}</td>
-              <td>{q.decision || "—"}</td>
-              <td>{q.errorStatus}</td>
+      {(items ?? []).length === 0 ? (
+        <EmptyState>No recent PDUs in the query ring.</EmptyState>
+      ) : (
+        <table className="data">
+          <caption>Last-N PDU ring.</caption>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Identity</th>
+              <th>Decision</th>
+              <th>Error status</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(items ?? []).map((q, i) => (
+              <tr key={`${q.type}-${q.identity}-${i}`}>
+                <td>
+                  <span className="chip">{q.type}</span>
+                </td>
+                <td>{q.identity || "—"}</td>
+                <td>{q.decision || "—"}</td>
+                <td>{q.errorStatus}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </main>
   );
 }

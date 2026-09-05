@@ -49,6 +49,10 @@ a {
   top: 0.75rem;
 }
 
+#app-main:focus {
+  outline: none;
+}
+
 .app {
   min-height: 100vh;
 }
@@ -156,6 +160,10 @@ button:disabled {
 .muted {
   color: var(--muted);
   font-size: 0.92rem;
+}
+
+.empty-state {
+  margin: 0.5rem 0;
 }
 
 .field-error,

@@ -4,6 +4,7 @@ import { APIError, getMap, queryMap, setOID } from "../api/client";
 import type { MapSpec, OIDResult } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
 import { SCOPE_WRITE } from "../auth/scopes";
+import { EmptyState } from "../ui/empty";
 import { leafTypeForOID, overlayJSONValue } from "../ui/overlay";
 
 export function MapDetailPage() {
@@ -124,47 +125,51 @@ export function MapDetailPage() {
         </p>
       ) : null}
       {notice !== "" ? <p role="status">{notice}</p> : null}
-      <table className="data">
-        <caption>Compiled instance leaves. Value prefers live GET (overlay flag) over bootstrap YAML.</caption>
-        <thead>
-          <tr>
-            <th>OID</th>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Access</th>
-            <th>Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(map?.objects ?? []).map((o) => (
-            <tr key={o.oid}>
-              <td>
-                <code>{o.oid}</code>
-              </td>
-              <td>{o.name || "—"}</td>
-              <td>
-                <span className="chip">{o.type}</span>
-              </td>
-              <td>
-                <span className="chip">{o.access}</span>
-              </td>
-              <td>
-                <code>{formatLeaf(o, live[o.oid])}</code>
-              </td>
+      {(map?.objects ?? []).length === 0 ? (
+        <EmptyState>This map has no instance leaves.</EmptyState>
+      ) : (
+        <table className="data">
+          <caption>Compiled instance leaves. Value prefers live GET (overlay flag) over bootstrap YAML.</caption>
+          <thead>
+            <tr>
+              <th>OID</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Access</th>
+              <th>Value</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(map?.objects ?? []).map((o) => (
+              <tr key={o.oid}>
+                <td>
+                  <code>{o.oid}</code>
+                </td>
+                <td>{o.name || "—"}</td>
+                <td>
+                  <span className="chip">{o.type}</span>
+                </td>
+                <td>
+                  <span className="chip">{o.access}</span>
+                </td>
+                <td>
+                  <code>{formatLeaf(o, live[o.oid])}</code>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
       <h2>Overlay write</h2>
       {!canWrite ? <p>Requires scope snmp.write.</p> : null}
       <form className="row" onSubmit={(e) => void onSet(e)}>
         <div className="field">
           <label htmlFor="set-oid">OID</label>
-          <input id="set-oid" name="oid" autoComplete="off" spellCheck={false} required />
+          <input id="set-oid" name="oid" autoComplete="off" spellCheck={false} required disabled={!canWrite || busy} />
         </div>
         <div className="field">
           <label htmlFor="set-value">Value</label>
-          <input id="set-value" name="value" autoComplete="off" spellCheck={false} />
+          <input id="set-value" name="value" autoComplete="off" spellCheck={false} disabled={!canWrite || busy} />
         </div>
         <button type="submit" disabled={!canWrite || busy}>
           {busy ? "Writing…" : "Set overlay"}
@@ -189,8 +194,11 @@ export function MapDetailPage() {
           Query
         </button>
       </form>
-      {queryResult ? (
+      {queryResult && queryResult.length === 0 ? (
+        <EmptyState>No bindings.</EmptyState>
+      ) : queryResult ? (
         <table className="data">
+          <caption>Simulated GET bindings.</caption>
           <thead>
             <tr>
               <th>OID</th>

@@ -64,7 +64,7 @@ function Shell() {
           ) : null}
         </nav>
       </header>
-      <div id="app-main">
+      <div id="app-main" tabIndex={-1}>
         <Outlet />
       </div>
     </div>

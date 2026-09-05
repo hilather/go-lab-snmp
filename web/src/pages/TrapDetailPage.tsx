@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { APIError, getTrap, getTrapRaw } from "../api/client";
 import type { Trap } from "../api/types";
+import { EmptyState } from "../ui/empty";
 
 export function TrapDetailPage() {
   const { id = "" } = useParams();
@@ -96,28 +97,33 @@ export function TrapDetailPage() {
             </div>
           </dl>
           <h2>VarBinds</h2>
-          <table className="data">
-            <thead>
-              <tr>
-                <th>OID</th>
-                <th>Type</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(trap.varBinds ?? []).map((vb, i) => (
-                <tr key={`${vb.oid}-${i}`}>
-                  <td>
-                    <code>{vb.oid}</code>
-                  </td>
-                  <td>{vb.type || "—"}</td>
-                  <td>
-                    <code>{formatVarBind(vb)}</code>
-                  </td>
+          {(trap.varBinds ?? []).length === 0 ? (
+            <EmptyState>No varbinds.</EmptyState>
+          ) : (
+            <table className="data">
+              <caption>Decoded trap varbinds.</caption>
+              <thead>
+                <tr>
+                  <th>OID</th>
+                  <th>Type</th>
+                  <th>Value</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {(trap.varBinds ?? []).map((vb, i) => (
+                  <tr key={`${vb.oid}-${i}`}>
+                    <td>
+                      <code>{vb.oid}</code>
+                    </td>
+                    <td>{vb.type || "—"}</td>
+                    <td>
+                      <code>{formatVarBind(vb)}</code>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
           <h2>Raw</h2>
           {raw !== "" ? <pre className="raw">{raw}</pre> : <p className="muted">Raw datagram not retained.</p>}
         </>

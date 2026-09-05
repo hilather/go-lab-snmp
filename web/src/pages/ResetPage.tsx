@@ -59,16 +59,28 @@ export function ResetPage() {
             value={phrase}
             autoComplete="off"
             spellCheck={false}
+            disabled={!allowed || busy}
             onChange={(e) => setPhrase(e.target.value)}
           />
         </div>
         <div className="field">
           <label htmlFor="reset-reason">Reason (optional)</label>
-          <input id="reset-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input
+            id="reset-reason"
+            value={reason}
+            disabled={!allowed || busy}
+            onChange={(e) => setReason(e.target.value)}
+          />
         </div>
-        <label>
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> Wipe
-          overlay, traps, and queries and reread bootstrap
+        <label htmlFor="reset-confirm">
+          <input
+            id="reset-confirm"
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            disabled={!allowed || busy}
+          />{" "}
+          Wipe overlay, traps, and queries and reread bootstrap
         </label>
         <button type="submit" disabled={!ok || busy}>
           {busy ? "Resetting…" : "Reset LabSNMP"}

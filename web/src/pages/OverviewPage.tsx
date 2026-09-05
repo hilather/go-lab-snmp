@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { APIError, getState, getStats, getStatus } from "../api/client";
 import type { StateView, Stats, Status } from "../api/types";
+import { EmptyState } from "../ui/empty";
 
 export function OverviewPage() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -71,13 +72,17 @@ export function OverviewPage() {
         </div>
       </dl>
       <h2>Listeners</h2>
-      <ul>
-        {(status.listeners ?? []).map((l) => (
-          <li key={l.name}>
-            {l.name}: <code>{l.address}</code>
-          </li>
-        ))}
-      </ul>
+      {(status.listeners ?? []).length === 0 ? (
+        <EmptyState>No listeners reported.</EmptyState>
+      ) : (
+        <ul>
+          {(status.listeners ?? []).map((l) => (
+            <li key={l.name}>
+              {l.name}: <code>{l.address}</code>
+            </li>
+          ))}
+        </ul>
+      )}
       <h2>Revisions</h2>
       <dl>
         <div>

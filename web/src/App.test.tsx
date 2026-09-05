@@ -35,6 +35,7 @@ describe("App nav", () => {
       }),
     );
     render(<App />);
+    expect(screen.getByRole("link", { name: "Skip to main content" })).toHaveAttribute("href", "#app-main");
     expect(await screen.findByRole("link", { name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Maps" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Communities" })).toBeInTheDocument();

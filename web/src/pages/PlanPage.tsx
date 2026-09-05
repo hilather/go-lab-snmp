@@ -76,11 +76,23 @@ export function PlanPage() {
       <form className="stack">
         <div className="field">
           <label htmlFor="plan-ops">Operations JSON</label>
-          <textarea id="plan-ops" rows={14} value={raw} onChange={(e) => setRaw(e.target.value)} spellCheck={false} />
+          <textarea
+            id="plan-ops"
+            rows={14}
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            spellCheck={false}
+            disabled={!allowed || busy}
+          />
         </div>
         <div className="field">
           <label htmlFor="plan-reason">Reason (optional)</label>
-          <input id="plan-reason" value={reason} onChange={(e) => setReason(e.target.value)} />
+          <input
+            id="plan-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            disabled={!allowed || busy}
+          />
         </div>
         <div className="row">
           <button type="button" disabled={!allowed || busy} onClick={() => void run("plan")}>

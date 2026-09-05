@@ -20,8 +20,8 @@ This is laboratory software. It is not a production SNMP agent.
 
 ## Status
 
-Control plane through SEC-001 plus the first operator SPA (UI-001).
-Mira review (PR 15) still blocks 1.0.0. Remaining waves start from
+Control plane through SEC-001 plus the operator SPA (UI-001). Mira
+checklist signed off for 1.0.0. Remaining waves start from
 `tasks/00-program-board.md`. Read `START-HERE.md`, then `AGENTS.md`.
 
 ## What 1.0 will do

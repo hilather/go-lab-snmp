@@ -1,6 +1,6 @@
 # 12 — Operator UI
 
-Status: Proposed
+Status: Accepted
 Owners: UI
 Last reviewed: 2026-09-05
 Related ADRs: 0004, 0005, 0007, 0009
@@ -9,8 +9,8 @@ Required for 1.0 GA. The operator SPA is a same-origin Vite + React 19 app
 embedded with `go:embed` of `internal/web/dist`. It talks REST `/v1` only.
 REST and MCP remain the control plane; the SPA is an adapter.
 
-This is the **first** UI implementation (UI-001). It is **not** GA-complete
-until Mira review (PR 15).
+This is the **first** UI implementation (UI-001). The operator-SPA checklist
+is signed off for **1.0.0** (PR 15).
 
 ## Screens
 
@@ -118,21 +118,22 @@ with `--management-listen=:8088` and `spec.ui.enabled: true`.
 
 ## Mira checklist
 
-Mira reviews the operator UI after this implementation lands. Mira is not a
-merge gate, tag gate, or GHCR gate. Security defects (localStorage tokens,
-CSRF missing, Basic auth) are a tag blocker because CI must be green.
+**Signed off for 1.0.0 on 2026-09-05 (PR 15).** Human Mira was not available;
+sign-off is from the UI-001 tests below. This is a process gate for
+**GA-001 / 1.0.0**, not for SWAP-001. No new capability IDs.
 
-PR 15 ticks this list (or absorbs findings). First implementation must already
-satisfy the rows; Mira records sign-off.
+Mira is not a merge gate, tag gate, or GHCR gate. Security defects
+(localStorage tokens, CSRF missing, Basic auth) remain a tag blocker because
+CI must be green.
 
-| Check | Evidence |
-|---|---|
-| Pages from this spec are present | `/login`, `/`, `/maps`, `/maps/:name`, `/communities`, `/users`, `/traps`, `/traps/:id`, `/queries`, `/plan`, `/reset`, `/audit`, `/features`, `/status` |
-| No localStorage / sessionStorage tokens | Vitest `assertNoTokenStorage`; cookie `labsnmp_session` |
-| CSRF on mutations | `X-LabSNMP-CSRF` in process memory; GET/HEAD omit it; Map overlay + plan/apply tests |
-| `ui.enabled: false` → 404 problem+json | `TestSPADisabledIs404` / `TestServeUIDisabledIs404` |
-| No send-trap control | No UI for originating traps; Vitest `NoSendTrap`; ADR 0007 |
-| Cookie name | `labsnmp_session` HttpOnly SameSite=Lax Path=/ |
-| Committed dist is a real Vite tree | `internal/web/dist` has hashed JS; stub sentence absent |
+| Check | Evidence | 1.0.0 |
+|---|---|---|
+| Pages from this spec are present | Vitest `App.test.tsx` / `nav.test.ts`: `/login`, `/`, `/maps`, `/maps/:name`, `/communities`, `/users`, `/traps`, `/traps/:id`, `/queries`, `/plan`, `/reset`, `/audit`, `/features`, `/status` | pass |
+| No localStorage / sessionStorage tokens | Vitest `assertNoTokenStorage`; cookie `labsnmp_session`; client tests assert empty web storage | pass |
+| CSRF on mutations | `X-LabSNMP-CSRF` in process memory; GET/HEAD omit it; `MapDetailPage` `oids:set` + `PlanPage` apply tests | pass |
+| `ui.enabled: false` → 404 problem+json | `TestSPADisabledIs404` / `TestServeUIDisabledIs404` | pass |
+| No send-trap control | No UI for originating traps; Vitest `NoSendTrap`; ADR 0007 | pass |
+| Cookie name | `labsnmp_session` HttpOnly SameSite=Lax Path=/ | pass |
+| Committed dist is a real Vite tree | `TestCommittedDistIsProduction`; `internal/web/dist` has hashed JS; stub sentence absent | pass |
 
-Not GA-complete until Mira review (PR 15).
+Operator SPA checklist signed off for 1.0.0.

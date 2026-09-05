@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { APIError, listMaps } from "../api/client";
 import type { MapSpec } from "../api/types";
+import { EmptyState } from "../ui/empty";
 
 export function MapsPage() {
   const [items, setItems] = useState<MapSpec[] | null>(null);
@@ -43,24 +44,29 @@ export function MapsPage() {
           {error}
         </p>
       ) : null}
-      <table className="data">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Objects</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(items ?? []).map((m) => (
-            <tr key={m.name}>
-              <td>
-                <Link to={`/maps/${encodeURIComponent(m.name)}`}>{m.name}</Link>
-              </td>
-              <td>{(m.objects ?? []).length}</td>
+      {(items ?? []).length === 0 ? (
+        <EmptyState>No maps in the live snapshot.</EmptyState>
+      ) : (
+        <table className="data">
+          <caption>OID maps in the live snapshot.</caption>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Objects</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {(items ?? []).map((m) => (
+              <tr key={m.name}>
+                <td>
+                  <Link to={`/maps/${encodeURIComponent(m.name)}`}>{m.name}</Link>
+                </td>
+                <td>{(m.objects ?? []).length}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </main>
   );
 }

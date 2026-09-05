@@ -10,8 +10,7 @@
   features, status. Cookie `labsnmp_session` + CSRF `X-LabSNMP-CSRF` in
   process memory; Vitest `assertNoTokenStorage`. `ui.enabled: false` is
   404 `application/problem+json`. Committed `internal/web/dist` is a real
-  Vite tree. Mira checklist in docs/12 (UI-001; not GA-complete until
-  Mira review).
+  Vite tree. Mira checklist in docs/12 signed off for 1.0.0 (UI-001).
 - Management bearer from `spec.auth.tokens[].secretFile` (≥32 bytes, SHA-256 digest compare), cookie `labsnmp_session` (HttpOnly SameSite=Lax Path=/), CSRF `X-LabSNMP-CSRF` in process memory, exact-match Origins, and an in-memory audit ring. Every `/v1` route except health (and metrics if `publicPath`) requires bearer or session. Users list keeps `secretFile` paths and never file contents (SEC-001).
 - REST `/v1` adapter (`internal/control/rest`) over `app.Service` plus the frozen capability table (`internal/capabilities`). Every PARITY_REQUIRED route, unauthenticated health live/ready, `application/problem+json` (`urn:labsnmp:error:<code>`), K20 features catalog, generated `api/openapi/v1.json` and `api/capabilities/v1.json`. `--management-listen` binds HTTP (default still off).
 - Snapshot compile and atomic swap (`internal/compiler`, `internal/snapshot`) plus HTTP-less `internal/app` plan/apply/reset. Closed apply ops from docs/04, `expectedRevision` + idempotency, `oids:set` sharing the SNMP SET overlay, and Reset that rereads bootstrap / drops overlay / wipes traps+queries without writing the file (APP-001).
@@ -27,6 +26,10 @@
 
 ### Changed
 
+- Operator SPA Mira checklist signed off for 1.0.0 from UI-001 tests
+  (pages, no localStorage tokens, CSRF, `ui.enabled: false` 404, no
+  send-trap). Empty-state copy and skip-link focus on list pages. No
+  new capability IDs (UI-001).
 - `GET /v1/queries` items are camelCase (`type`, `identity`, `decision`,
   `errorStatus`), matching docs/06 and the operator SPA.
 - Apply/reset reloads bearer identity, `allowedOrigins`, and `metrics.publicPath` from the live snapshot. Unreadable or empty `spec.auth` drops the previous verifier instead of keeping old tokens. Token files resolve CWD then the bootstrap directory. OpenAPI documents cookie `labsnmp_session` and header `X-LabSNMP-CSRF`.
