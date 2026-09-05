@@ -66,15 +66,16 @@ func parseNetSNMPHexLine(line []byte) ([]byte, bool) {
 	out := make([]byte, 0, len(fields))
 	for _, f := range fields {
 		if len(f) != 2 || !isHex(f) {
-			return nil, false
+			// net-snmp xdump appends a 16-char ASCII column after the hex.
+			break
 		}
 		v, err := strconv.ParseUint(f, 16, 8)
 		if err != nil {
-			return nil, false
+			break
 		}
 		out = append(out, byte(v))
 	}
-	return out, true
+	return out, len(out) > 0
 }
 
 func isHex(s string) bool {
@@ -92,18 +93,6 @@ func isHex(s string) bool {
 }
 
 func TestParseNetSNMPDump(t *testing.T) {
-	dump := []byte(`
-Sending 40 bytes to UDP: [127.0.0.1]:1->[0.0.0.0]:0
-0000: 30 26 02 01  00 04 06 70  75 62 6C 69  63 A0 19 02
-0010: 01 01 02 01  00 02 01 00  30 0E 30 0C  06 08 2B 06
-0020: 01 02 01 01  01 00 05 00
-
-Timeout: No Response from 127.0.0.1:1.
-`)
-	got, err := parseNetSNMPDump(dump)
-	if err != nil {
-		t.Fatal(err)
-	}
 	want, err := Encode(Message{
 		Version:   VersionV1,
 		Community: []byte("public"),
@@ -116,8 +105,33 @@ Timeout: No Response from 127.0.0.1:1.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(got, want) {
-		t.Fatalf("dump %x\nwant %x", got, want)
+	dumps := []string{
+		`
+Sending 40 bytes to UDP: [127.0.0.1]:1->[0.0.0.0]:0
+0000: 30 26 02 01  00 04 06 70  75 62 6C 69  63 A0 19 02
+0010: 01 01 02 01  00 02 01 00  30 0E 30 0C  06 08 2B 06
+0020: 01 02 01 01  01 00 05 00
+
+Timeout: No Response from 127.0.0.1:1.
+`,
+		// Real snmpget -d xdump: hex then 16-character ASCII column.
+		`
+Sending 40 bytes to UDP: [127.0.0.1]:1->[0.0.0.0]:0
+0000: 30 26 02 01  00 04 06 70  75 62 6C 69  63 A0 19 02   0&.....public...
+0016: 01 01 02 01  00 02 01 00  30 0E 30 0C  06 08 2B 06   ........0.0...+.
+0032: 01 02 01 01  01 00 05 00                           ........
+
+Timeout: No Response from 127.0.0.1:1.
+`,
+	}
+	for i, dump := range dumps {
+		got, err := parseNetSNMPDump([]byte(dump))
+		if err != nil {
+			t.Fatalf("dump %d: %v", i, err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("dump %d: %x\nwant %x", i, got, want)
+		}
 	}
 }
 
