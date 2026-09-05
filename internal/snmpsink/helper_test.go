@@ -3,13 +3,17 @@ package snmpsink
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/pion/dtls/v3"
+
 	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/snmptest"
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 	"github.com/hilather/go-lab-snmp/internal/store"
 	"github.com/hilather/go-lab-snmp/internal/usm"
@@ -37,11 +41,8 @@ func coldStart() snmpwire.OID {
 	return snmpwire.OID{1, 3, 6, 1, 6, 3, 1, 1, 5, 1}
 }
 
-func startSink(t *testing.T, cfg Config) *Server {
+func fillSinkConfig(t *testing.T, cfg Config) Config {
 	t.Helper()
-	if cfg.Addr == "" {
-		cfg.Addr = "127.0.0.1:0"
-	}
 	if cfg.Store == nil {
 		cfg.Store = store.NewTrapRing(store.TrapPolicy{MaxMessages: 32, MaxBytes: 1 << 20, MaxWait: 2 * time.Second})
 	}
@@ -72,6 +73,18 @@ func startSink(t *testing.T, cfg Config) *Server {
 		}
 	}
 	cfg.RawRetain = true
+	if cfg.BaseDir == "" {
+		cfg.BaseDir = repoRoot(t)
+	}
+	return cfg
+}
+
+func startSink(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	if cfg.Addr == "" {
+		cfg.Addr = "127.0.0.1:0"
+	}
+	cfg = fillSinkConfig(t, cfg)
 	s, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -90,8 +103,146 @@ func startSink(t *testing.T, cfg Config) *Server {
 	return s
 }
 
+func newUnstarted(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	cfg.Addr = ""
+	cfg = fillSinkConfig(t, cfg)
+	s, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	})
+	return s
+}
+
+func startTCPSink(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	s := newUnstarted(t, cfg)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := s.SwapTCP(ln)
+	if old != nil {
+		_ = old.Close()
+	}
+	if s.Bound() {
+		t.Fatal("TCP-only must not bind UDP")
+	}
+	if !s.BoundTCP() || !s.Ready() {
+		t.Fatal("TCP sink not ready")
+	}
+	return s
+}
+
+func startDTLSSink(t *testing.T, cfg Config) *Server {
+	t.Helper()
+	t.Chdir(repoRoot(t))
+	s := newUnstarted(t, cfg)
+	ln, err := s.ListenDTLS("127.0.0.1:0", "testdata/certs/lab.pem", "testdata/certs/lab-key.pem", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := s.SwapDTLS(ln)
+	if old != nil {
+		_ = old.Close()
+	}
+	if s.Bound() {
+		t.Fatal("DTLS-only must not bind UDP")
+	}
+	if !s.BoundDTLS() || !s.Ready() {
+		t.Fatal("DTLS sink not ready")
+	}
+	return s
+}
+
+func dstTCP(s *Server) string {
+	return s.TCPAddr().String()
+}
+
+func dstDTLS(s *Server) string {
+	return s.DTLSAddr().String()
+}
+
+func tcpExchange(t *testing.T, addr string, req []byte, timeout time.Duration) snmpwire.Message {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(timeout))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := snmpwire.ReadTCP(c, 64<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snmptest.MustDecode(t, raw)
+}
+
+func tcpSend(t *testing.T, addr string, req []byte, timeout time.Duration) {
+	t.Helper()
+	c, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(timeout))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func dtlsExchange(t *testing.T, addr string, req []byte, timeout time.Duration) snmpwire.Message {
+	t.Helper()
+	raddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := dtls.DialWithOptions("udp", raddr,
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithCipherSuites(dtlsAllowlist...),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := conn.HandshakeContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+	if _, err := conn.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64<<10)
+	n, err := conn.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snmptest.MustDecode(t, buf[:n])
+}
+
 func dst(s *Server) string {
 	return s.Addr().String()
+}
+
+func wrapPacketConn(t *testing.T, s *Server, wrap func(net.PacketConn) net.PacketConn) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.udp == nil {
+		t.Fatal("no PacketConn")
+	}
+	s.udp = wrap(s.udp)
 }
 
 func waitOne(t *testing.T, s *Server) *store.TrapRecord {

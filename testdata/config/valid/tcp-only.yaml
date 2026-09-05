@@ -1,0 +1,23 @@
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: tcp-only
+spec:
+  listeners:
+    agent:
+      enabled: false
+    traps:
+      enabled: false
+    tcp:
+      enabled: true
+      address: ":1161"
+  maps:
+    - name: system-if
+      objects:
+        - oid: "10.20.0.3.10.20.0.5.0"
+          type: octetString
+          value: "x"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: system-if

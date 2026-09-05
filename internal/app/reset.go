@@ -62,14 +62,32 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	newTrap := effectiveTrap(s.trapOverride, next.TrapAddress, next.TrapsEnabled)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
-	if s.snmpRebind != nil && newSNMP != "" && newSNMP != oldSNMP {
-		if err := s.snmpRebind(newSNMP); err != nil {
+	cert, key, ca := resolveDTLSCreds(next, filepath.Dir(s.bootstrapPath))
+	desired := DesiredListeners{
+		AgentUDP:         newSNMP,
+		TrapUDP:          newTrap,
+		AgentTCP:         effectiveTCP(next.TCPEnabled, next.TCPAddress, newSNMP),
+		TrapTCP:          effectiveTCP(next.TCPEnabled, next.TCPTrapsAddress, newTrap),
+		AgentDTLS:        effectiveDTLS(s.dtlsOverride, next.DTLSAddress, next.DTLSEnabled),
+		TrapDTLS:         effectiveDTLS(s.dtlsTrapOverride, next.DTLSTrapsAddress, next.DTLSEnabled),
+		DTLSCertFile:     cert,
+		DTLSKeyFile:      key,
+		DTLSClientCAFile: ca,
+	}
+	if s.dataPlaneSync != nil {
+		if err := s.dataPlaneSync(desired); err != nil {
 			return nil, nil, asDomain(err)
 		}
-	}
-	if s.trapRebind != nil && newTrap != oldTrap {
-		if err := s.trapRebind(newTrap); err != nil {
-			return nil, nil, asDomain(err)
+	} else {
+		if s.snmpRebind != nil && newSNMP != oldSNMP {
+			if err := s.snmpRebind(newSNMP); err != nil {
+				return nil, nil, asDomain(err)
+			}
+		}
+		if s.trapRebind != nil && newTrap != oldTrap {
+			if err := s.trapRebind(newTrap); err != nil {
+				return nil, nil, asDomain(err)
+			}
 		}
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
@@ -166,4 +184,22 @@ func canonicalOf(s *snapshot.Snapshot) *model.State {
 		return nil
 	}
 	return s.Canonical
+}
+
+func resolveDTLSCreds(next *snapshot.Snapshot, baseDir string) (cert, key, ca string) {
+	if next == nil || !next.DTLSEnabled {
+		return "", "", ""
+	}
+	return resolveMaybe(next.DTLSCertFile, baseDir), resolveMaybe(next.DTLSKeyFile, baseDir), resolveMaybe(next.DTLSClientCAFile, baseDir)
+}
+
+func resolveMaybe(path, baseDir string) string {
+	if path == "" {
+		return ""
+	}
+	resolved, err := config.ResolveFileRef(path, baseDir)
+	if err != nil {
+		return path
+	}
+	return resolved
 }

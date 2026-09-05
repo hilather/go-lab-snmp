@@ -8,23 +8,73 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/snmpwire"
 )
 
-func (s *Server) handle(pkt []byte, addr net.Addr) {
+// replySink is one request's write path (UDP WriteTo, TCP WriteTCP, DTLS Write).
+type replySink interface {
+	Write(p []byte) error
+	RemoteAddr() net.Addr
+}
+
+type udpReply struct {
+	pc   net.PacketConn
+	addr net.Addr
+}
+
+func (u udpReply) Write(p []byte) error {
+	_, err := u.pc.WriteTo(p, u.addr)
+	return err
+}
+
+func (u udpReply) RemoteAddr() net.Addr { return u.addr }
+
+type streamReply struct {
+	conn net.Conn
+	tcp  bool
+}
+
+type writeObserveConn struct {
+	net.Conn
+	observe func([]byte, error)
+}
+
+func (c writeObserveConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if c.observe != nil {
+		c.observe(p, err)
+	}
+	return n, err
+}
+
+func (r streamReply) Write(p []byte) error {
+	if r.conn == nil {
+		return net.ErrClosed
+	}
+	if r.tcp {
+		return snmpwire.WriteTCP(r.conn, p)
+	}
+	_, err := r.conn.Write(p)
+	return err
+}
+
+func (r streamReply) RemoteAddr() net.Addr {
+	if r.conn == nil {
+		return nil
+	}
+	return r.conn.RemoteAddr()
+}
+
+func (s *Server) handle(sink replySink, pkt []byte) {
 	rt := s.view()
-	if s == nil || rt == nil {
+	if s == nil || rt == nil || sink == nil {
 		return
 	}
 	s.syncAdmission(rt)
-	pc := s.conn()
-	if pc == nil {
-		return
-	}
 	if int64(len(pkt)) > rt.MaxMessageBytes {
 		s.Dropped.Add(1)
 		s.observePDU("", "", "oversize")
 		return
 	}
 
-	ip := peerAddr(addr)
+	ip := peerAddr(sink.RemoteAddr())
 	if !s.allowed(rt, ip) {
 		s.Allowlist.Add(1)
 		s.Dropped.Add(1)
@@ -56,16 +106,16 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 
 	switch msg.Version {
 	case snmpwire.VersionV1, snmpwire.VersionV2c:
-		s.handleCommunity(rt, pc, addr, msg)
+		s.handleCommunity(rt, sink, msg)
 	case snmpwire.VersionV3:
-		s.handleV3(rt, pc, addr, pkt, msg)
+		s.handleV3(rt, sink, pkt, msg)
 	default:
 		s.Dropped.Add(1)
 		s.observePDU(label, pduType(msg), "drop")
 	}
 }
 
-func (s *Server) handleCommunity(rt *Runtime, pc net.PacketConn, addr net.Addr, msg snmpwire.Message) {
+func (s *Server) handleCommunity(rt *Runtime, sink replySink, msg snmpwire.Message) {
 	ver := versionLabel(msg.Version)
 	c := rt.lookupCommunity(msg.Community)
 	if c == nil {
@@ -96,17 +146,17 @@ func (s *Server) handleCommunity(rt *Runtime, pc net.PacketConn, addr net.Addr, 
 		s.observePDU(ver, req.Type.String(), "drop")
 		return
 	}
-	_, _ = pc.WriteTo(out, addr)
+	_ = sink.Write(out)
 	s.Served.Add(1)
 	rt.record(req.Type.String(), c.Name, "ok", resp.ErrorStatus)
 	s.observePDU(ver, req.Type.String(), "ok")
 }
 
-func (s *Server) handleV3(rt *Runtime, pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
+func (s *Server) handleV3(rt *Runtime, sink replySink, raw []byte, msg snmpwire.Message) {
 	ver := versionLabel(msg.Version)
 	out := rt.Engine.Open(raw, msg)
 	if len(out.Report) > 0 {
-		_, _ = pc.WriteTo(out.Report, addr)
+		_ = sink.Write(out.Report)
 		s.Served.Add(1)
 		rt.record("report", "", "ok", 0)
 		s.observePDU(ver, "report", "ok")
@@ -150,7 +200,7 @@ func (s *Server) handleV3(rt *Runtime, pc net.PacketConn, addr net.Addr, raw []b
 			return
 		}
 	}
-	_, _ = pc.WriteTo(wire, addr)
+	_ = sink.Write(wire)
 	s.Served.Add(1)
 	rt.record(req.Type.String(), in.User.Name, "ok", resp.ErrorStatus)
 	s.observePDU(ver, req.Type.String(), "ok")

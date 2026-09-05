@@ -20,8 +20,14 @@ var expectedInvalid = map[string]string{
 	"management-auth.yaml":              violationUnknownField,
 	"token-short.yaml":                  violationInvalidValue,
 	"token-missing-file.yaml":           violationInvalidValue,
-	"dtls-enabled.yaml":                 violationTLSUnsupported,
-	"tcp-enabled.yaml":                  violationTLSUnsupported,
+	"dtls-enabled-no-cert.yaml":         violationRequired,
+	"dtls-bad-pem.yaml":                 violationInvalidValue,
+	"dtls-bad-client-ca.yaml":           violationInvalidValue,
+	"dtls-udp-collision.yaml":           violationInvalidValue,
+	"tcp-only-no-identity.yaml":         violationRequired,
+	"tcp-enabled-no-address.yaml":       violationRequired,
+	"no-agent-plane.yaml":               violationRequired,
+	"listeners-tls.yaml":                violationUnknownField,
 	"community-inline.yaml":             violationUnknownField,
 	"community-secretFile.yaml":         violationUnknownField,
 	"missing-communityFile.yaml":        violationRequired,
@@ -162,6 +168,18 @@ func TestSchemaFilePresent(t *testing.T) {
 	}
 	if strings.Contains(string(b), "processUptime") {
 		t.Fatal("schema must not include processUptime")
+	}
+	if !strings.Contains(string(b), `"tcpListener"`) || !strings.Contains(string(b), `"dtlsListener"`) {
+		t.Fatal("schema missing tcpListener/dtlsListener")
+	}
+	if !strings.Contains(string(b), "trapsAddress") || !strings.Contains(string(b), "certFile") {
+		t.Fatal("schema missing tcp/dtls file-ref fields")
+	}
+	if strings.Contains(string(b), `"toggle"`) {
+		t.Fatal("schema must not keep $defs/toggle")
+	}
+	if strings.Contains(string(b), `"tls":`) {
+		t.Fatal("schema must not include spec.listeners.tls")
 	}
 }
 

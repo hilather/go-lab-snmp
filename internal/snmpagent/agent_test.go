@@ -6,8 +6,11 @@ import (
 	"net"
 	"net/netip"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/pion/dtls/v3"
 
 	"github.com/hilather/go-lab-snmp/internal/mibtree"
 	"github.com/hilather/go-lab-snmp/internal/model"
@@ -431,4 +434,400 @@ func TestV3DiscoveryAndGET(t *testing.T) {
 	if p == nil || p.Type != snmpwire.PDUResponse || string(p.VarBinds[0].Value.Bytes) != "descr" {
 		t.Fatalf("v3 GET: %+v", p)
 	}
+}
+
+func TestRebindMovesPacketConn(t *testing.T) {
+	s := startAgent(t, loadFull(t, nil))
+	old := s.Addr().String()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := pc.LocalAddr().String()
+	_ = pc.Close()
+	if err := s.Rebind(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Addr().String(); got != next {
+		t.Fatalf("addr %s want %s", got, next)
+	}
+	m := getResp(t, s, snmpwire.VersionV2c, "public", sysDescr())
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("%+v", p)
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("old PacketConn must be closed: %v", err)
+	}
+	_ = hold.Close()
+}
+
+func TestRebindEmptyUnbinds(t *testing.T) {
+	s := startAgent(t, loadFull(t, nil))
+	old := s.Addr().String()
+	if err := s.Rebind(""); err != nil {
+		t.Fatal(err)
+	}
+	if s.Bound() {
+		t.Fatal("empty addr must unbind")
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("unbound address must be free: %v", err)
+	}
+	_ = hold.Close()
+}
+
+func TestRebindFailureKeepsOld(t *testing.T) {
+	s := startAgent(t, loadFull(t, nil))
+	old := s.Addr().String()
+	hold, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = hold.Close() }()
+	if err := s.Rebind(hold.LocalAddr().String()); err == nil {
+		t.Fatal("expected listen failure")
+	}
+	if got := s.Addr().String(); got != old {
+		t.Fatalf("failed Rebind moved %s -> %s", old, got)
+	}
+	m := getResp(t, s, snmpwire.VersionV2c, "public", sysDescr())
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+		t.Fatalf("old socket must keep serving: %+v", p)
+	}
+}
+
+func TestTCPGETPublicSysDescr(t *testing.T) {
+	s := startTCPAgent(t, loadFull(t, nil))
+	if s.Bound() {
+		t.Fatal("TCP-only must not bind UDP")
+	}
+	if !s.BoundTCP() || !s.Ready() {
+		t.Fatal("TCP agent not ready")
+	}
+	for _, ver := range []snmpwire.Version{snmpwire.VersionV1, snmpwire.VersionV2c} {
+		req := snmptest.MustEncodeGet(t, ver, "public", 1, sysDescr())
+		m := tcpExchange(t, dstTCP(s), req, 2*time.Second)
+		p := m.RequestPDU()
+		if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNoError || len(p.VarBinds) != 1 {
+			t.Fatalf("%s: %+v", ver, p)
+		}
+		if string(p.VarBinds[0].Value.Bytes) != "LabSNMP public-if" {
+			t.Fatalf("%s value %q", ver, p.VarBinds[0].Value.Bytes)
+		}
+	}
+}
+
+func TestTCPOnlyNoUDP(t *testing.T) {
+	s := startTCPAgent(t, loadYAML(t, tcpOnlyYAML, nil))
+	if s.Bound() || s.Addr() != nil {
+		t.Fatal("TCP-only must leave UDP unbound")
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, sysDescr())
+	m := tcpExchange(t, dstTCP(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "tcp-only" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestTCPUnknownCommunitySilentDrop(t *testing.T) {
+	s := startTCPAgent(t, loadFull(t, nil))
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "nope", 1, sysDescr())
+	c, err := net.DialTimeout("tcp", dstTCP(s), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(200 * time.Millisecond))
+	if err := snmpwire.WriteTCP(c, req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := snmpwire.ReadTCP(c, 64<<10); err == nil {
+		t.Fatal("unknown community must not reply")
+	}
+	deadline := time.Now().Add(time.Second)
+	for s.AuthFail.Load() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.AuthFail.Load() < 1 {
+		t.Fatal("AuthFail counter")
+	}
+}
+
+func TestTCPGETNEXTAndSETOverlay(t *testing.T) {
+	s := startTCPAgent(t, loadYAML(t, rwYAML, nil))
+	cur := oid(1, 3)
+	req := snmptest.MustEncodeGetNext(t, snmpwire.VersionV2c, "public", 1, cur)
+	m := tcpExchange(t, dstTCP(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.VarBinds[0].Name.String() != "1.3.6" {
+		t.Fatalf("GETNEXT: %+v", p)
+	}
+
+	set := snmptest.MustEncodeSet(t, snmpwire.VersionV2c, "private", 5, []snmpwire.VarBind{
+		{Name: ifOper(), Value: snmpwire.Int(2)},
+	})
+	m = tcpExchange(t, dstTCP(s), set, 2*time.Second)
+	p = m.RequestPDU()
+	if p == nil || p.ErrorStatus != snmpwire.ErrorStatusNoError {
+		t.Fatalf("SET: %+v", p)
+	}
+	get := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "private", 6, ifOper())
+	m = tcpExchange(t, dstTCP(s), get, 2*time.Second)
+	if m.RequestPDU().VarBinds[0].Value.Int != 2 {
+		t.Fatalf("GET after SET: %+v", m.RequestPDU())
+	}
+}
+
+func TestTCPV3GET(t *testing.T) {
+	clk := fakeClock()
+	snap := loadYAML(t, rwYAML, clk)
+	s := startTCPAgent(t, snap)
+	client, err := usm.New(usm.Config{
+		EngineID:    snap.Engine.ID(),
+		EngineBoots: 1,
+		Clock:       clk,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := readTrimmed("testdata/secrets/snmp-alice-auth", repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := readTrimmed("testdata/secrets/snmp-alice-priv", repoRoot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AddUser(usm.UserConfig{
+		Name:           "alice",
+		Level:          model.LevelAuthPriv,
+		AuthProtocol:   model.AuthSHA256,
+		AuthPassphrase: auth,
+		PrivProtocol:   model.PrivAES128,
+		PrivPassphrase: priv,
+		Access:         model.AccessReadWrite,
+		Map:            "rw",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	disc := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            1,
+		MsgMaxSize:       65507,
+		MsgFlags:         snmpwire.FlagReportable,
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		USM:              snmpwire.USMParameters{UserName: []byte("alice")},
+		ScopedPDU: &snmpwire.ScopedPDU{
+			PDU: snmpwire.PDU{
+				Type:      snmpwire.PDUGet,
+				RequestID: 1,
+				VarBinds:  []snmpwire.VarBind{{Name: sysDescr(), Value: snmpwire.Null()}},
+			},
+		},
+	}
+	raw, err := snmpwire.Encode(disc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := tcpExchange(t, dstTCP(s), raw, 2*time.Second)
+	if p := rep.RequestPDU(); p == nil || p.Type != snmpwire.PDUReport {
+		t.Fatalf("discovery: %+v", p)
+	}
+}
+
+func TestTCPFramingLossCloses(t *testing.T) {
+	s := startTCPAgent(t, loadYAML(t, rwYAML, nil))
+	c, err := net.DialTimeout("tcp", dstTCP(s), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	_ = c.SetDeadline(time.Now().Add(time.Second))
+	if _, err := c.Write([]byte{0x30, 0x80}); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 8)
+	_, err = c.Read(buf)
+	if err == nil {
+		t.Fatal("framing loss must close the connection")
+	}
+}
+
+func TestDTLSGETPublicSysDescr(t *testing.T) {
+	s := startDTLSAgent(t, loadYAML(t, dtlsYAML, nil))
+	if s.Bound() {
+		t.Fatal("DTLS-only must not bind SNMP UDP")
+	}
+	if !s.BoundDTLS() || !s.Ready() {
+		t.Fatal("DTLS agent not ready")
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, sysDescr())
+	m := dtlsExchange(t, dstDTLS(s), req, 3*time.Second)
+	p := m.RequestPDU()
+	if p == nil || string(p.VarBinds[0].Value.Bytes) != "descr" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestListenDTLSUsesPassedCredsNotSnapshot(t *testing.T) {
+	snap := loadYAML(t, rwYAML, nil)
+	if snap.DTLSCertFile != "" {
+		t.Fatal("fixture must not carry DTLS certs")
+	}
+	s := newUnstarted(t, snap)
+	ln, err := s.ListenDTLS("127.0.0.1:0", "testdata/certs/lab.pem", "testdata/certs/lab-key.pem", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ln.Close()
+}
+
+func TestDTLSGETLargeOctetString(t *testing.T) {
+	snap := loadYAML(t, dtlsBigYAML(), nil)
+	tree := snap.Maps["rw"]
+	if tree == nil {
+		t.Fatal("missing map")
+	}
+	got := tree.Get(toMIBOID(sysDescr()))
+	if n := len(got.Value.Bytes); n < 8192 {
+		t.Fatalf("compiled octet-string len=%d", n)
+	}
+	s := startDTLSAgent(t, snap)
+	var (
+		mu       sync.Mutex
+		wrote    []byte
+		writeErr error
+	)
+	s.observeWrite = func(p []byte, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		wrote = append([]byte(nil), p...)
+		writeErr = err
+	}
+	req := snmptest.MustEncodeGet(t, snmpwire.VersionV2c, "public", 1, sysDescr())
+	raddr, err := net.ResolveUDPAddr("udp", dstDTLS(s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := dtls.DialWithOptions("udp", raddr,
+		dtls.WithInsecureSkipVerify(true),
+		dtls.WithExtendedMasterSecret(dtls.RequireExtendedMasterSecret),
+		dtls.WithCipherSuites(dtlsAllowlist...),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := conn.HandshakeContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Write(req); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for s.Served.Load() < 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if s.Served.Load() < 1 {
+		t.Fatalf("server must Write a large Response served=%d dropped=%d", s.Served.Load(), s.Dropped.Load())
+	}
+	mu.Lock()
+	n, err := len(wrote), writeErr
+	mu.Unlock()
+	if err != nil {
+		t.Fatalf("DTLS Write: %v", err)
+	}
+	if n < 8192 {
+		t.Fatalf("DTLS Write len=%d want >=8192", n)
+	}
+}
+
+const tcpOnlyYAML = `
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: tcp-only
+spec:
+  listeners:
+    agent:
+      enabled: false
+    traps:
+      enabled: false
+    tcp:
+      enabled: true
+      address: "127.0.0.1:0"
+  maps:
+    - name: rw
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          type: octetString
+          value: "tcp-only"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: rw
+`
+
+const dtlsYAML = `
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: dtls
+spec:
+  listeners:
+    agent:
+      enabled: false
+    traps:
+      enabled: false
+    dtls:
+      enabled: true
+      certFile: testdata/certs/lab.pem
+      keyFile: testdata/certs/lab-key.pem
+  maps:
+    - name: rw
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          type: octetString
+          value: "descr"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: rw
+`
+
+func dtlsBigYAML() string {
+	return `
+apiVersion: labsnmp.dev/v1alpha1
+kind: LabSNMP
+metadata:
+  name: dtls-big
+spec:
+  listeners:
+    agent:
+      enabled: false
+    traps:
+      enabled: false
+    dtls:
+      enabled: true
+      certFile: testdata/certs/lab.pem
+      keyFile: testdata/certs/lab-key.pem
+  maps:
+    - name: rw
+      objects:
+        - oid: "1.3.6.1.2.1.1.1.0"
+          type: octetString
+          value: "` + string(bytes.Repeat([]byte("x"), 8192)) + `"
+  communities:
+    - name: public
+      communityFile: testdata/secrets/snmp-public
+      map: rw
+`
 }

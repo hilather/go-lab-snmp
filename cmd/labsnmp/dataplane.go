@@ -1,0 +1,218 @@
+package main
+
+import (
+	"fmt"
+	"net"
+	"sync"
+
+	"github.com/hilather/go-lab-snmp/internal/app"
+	"github.com/hilather/go-lab-snmp/internal/snmpagent"
+	"github.com/hilather/go-lab-snmp/internal/snmpsink"
+)
+
+// dataPlane owns the agent and trap sockets. Sync binds from desired
+// and must not re-read app.Active().
+type dataPlane struct {
+	mu    sync.Mutex
+	agent *snmpagent.Server
+	sink  *snmpsink.Server
+	bound app.DesiredListeners
+}
+
+func (d *dataPlane) last() app.DesiredListeners {
+	if d == nil {
+		return app.DesiredListeners{}
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.bound
+}
+
+// Sync binds every new address before closing any old socket.
+// A failed new bind rolls back sockets opened in this call; the previous
+// listeners keep serving. Empty desired address stops that listener.
+func (d *dataPlane) Sync(desired app.DesiredListeners) error {
+	if d == nil {
+		return fmt.Errorf("dataplane: nil")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var newAgent, newTrap net.PacketConn
+	var newTCP, newDTLS, newTrapTCP, newTrapDTLS net.Listener
+	rollback := func() {
+		if newAgent != nil {
+			_ = newAgent.Close()
+			newAgent = nil
+		}
+		if newTrap != nil {
+			_ = newTrap.Close()
+			newTrap = nil
+		}
+		if newTCP != nil {
+			_ = newTCP.Close()
+			newTCP = nil
+		}
+		if newDTLS != nil {
+			_ = newDTLS.Close()
+			newDTLS = nil
+		}
+		if newTrapTCP != nil {
+			_ = newTrapTCP.Close()
+			newTrapTCP = nil
+		}
+		if newTrapDTLS != nil {
+			_ = newTrapDTLS.Close()
+			newTrapDTLS = nil
+		}
+	}
+
+	if (desired.AgentUDP != "" || desired.AgentTCP != "" || desired.AgentDTLS != "") && d.agent == nil {
+		return fmt.Errorf("dataplane: agent server missing")
+	}
+	if (desired.TrapUDP != "" || desired.TrapTCP != "" || desired.TrapDTLS != "") && d.sink == nil {
+		return fmt.Errorf("dataplane: trap server missing")
+	}
+
+	agentBound := d.agent != nil && d.agent.Bound()
+	if desired.AgentUDP != "" && (desired.AgentUDP != d.bound.AgentUDP || !agentBound) {
+		pc, err := net.ListenPacket("udp", desired.AgentUDP)
+		if err != nil {
+			return fmt.Errorf("snmpagent: udp listen: %w", err)
+		}
+		newAgent = pc
+	}
+
+	trapBound := d.sink != nil && d.sink.Bound()
+	if desired.TrapUDP != "" && (desired.TrapUDP != d.bound.TrapUDP || !trapBound) {
+		pc, err := net.ListenPacket("udp", desired.TrapUDP)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpsink: udp listen: %w", err)
+		}
+		newTrap = pc
+	}
+
+	agentTCPBound := d.agent != nil && d.agent.BoundTCP()
+	if desired.AgentTCP != "" && (desired.AgentTCP != d.bound.AgentTCP || !agentTCPBound) {
+		ln, err := net.Listen("tcp", desired.AgentTCP)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpagent: tcp listen: %w", err)
+		}
+		newTCP = ln
+	}
+
+	trapTCPBound := d.sink != nil && d.sink.BoundTCP()
+	if desired.TrapTCP != "" && (desired.TrapTCP != d.bound.TrapTCP || !trapTCPBound) {
+		ln, err := net.Listen("tcp", desired.TrapTCP)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpsink: tcp listen: %w", err)
+		}
+		newTrapTCP = ln
+	}
+
+	agentDTLSBound := d.agent != nil && d.agent.BoundDTLS()
+	dtlsCredsChanged := desired.DTLSCertFile != d.bound.DTLSCertFile ||
+		desired.DTLSKeyFile != d.bound.DTLSKeyFile ||
+		desired.DTLSClientCAFile != d.bound.DTLSClientCAFile
+	if desired.AgentDTLS != "" && (desired.AgentDTLS != d.bound.AgentDTLS || !agentDTLSBound || dtlsCredsChanged) {
+		ln, err := d.agent.ListenDTLS(desired.AgentDTLS, desired.DTLSCertFile, desired.DTLSKeyFile, desired.DTLSClientCAFile)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpagent: dtls listen: %w", err)
+		}
+		newDTLS = ln
+	}
+
+	trapDTLSBound := d.sink != nil && d.sink.BoundDTLS()
+	if desired.TrapDTLS != "" && (desired.TrapDTLS != d.bound.TrapDTLS || !trapDTLSBound || dtlsCredsChanged) {
+		ln, err := d.sink.ListenDTLS(desired.TrapDTLS, desired.DTLSCertFile, desired.DTLSKeyFile, desired.DTLSClientCAFile)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("snmpsink: dtls listen: %w", err)
+		}
+		newTrapDTLS = ln
+	}
+
+	if d.agent != nil {
+		switch {
+		case desired.AgentUDP == "":
+			old := d.agent.SwapUDP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newAgent != nil:
+			old := d.agent.SwapUDP(newAgent)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.AgentTCP == "":
+			old := d.agent.SwapTCP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTCP != nil:
+			old := d.agent.SwapTCP(newTCP)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.AgentDTLS == "":
+			old := d.agent.SwapDTLS(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newDTLS != nil:
+			old := d.agent.SwapDTLS(newDTLS)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+	}
+	if d.sink != nil {
+		switch {
+		case desired.TrapUDP == "":
+			old := d.sink.SwapUDP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTrap != nil:
+			old := d.sink.SwapUDP(newTrap)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.TrapTCP == "":
+			old := d.sink.SwapTCP(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTrapTCP != nil:
+			old := d.sink.SwapTCP(newTrapTCP)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+		switch {
+		case desired.TrapDTLS == "":
+			old := d.sink.SwapDTLS(nil)
+			if old != nil {
+				_ = old.Close()
+			}
+		case newTrapDTLS != nil:
+			old := d.sink.SwapDTLS(newTrapDTLS)
+			if old != nil {
+				_ = old.Close()
+			}
+		}
+	}
+
+	d.bound = desired
+	return nil
+}

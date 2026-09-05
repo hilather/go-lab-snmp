@@ -49,7 +49,8 @@ Changing an invariant requires an ADR first.
    `internal/control`, `internal/web`, or `net/http`.
 2. **No outbound SNMP.** Production those packages plus `internal/app`
    MUST NOT `Dial` / `DialTimeout` / `Dialer.Dial`. INFORM ack is
-   `WriteTo` on the trap socket. No trap originator. No manager CLI.
+   `WriteTo` on UDP or `Write`/`WriteTCP` on the accepted connection.
+   No trap originator. No manager CLI.
 3. **Never rewrite bootstrap YAML.** Reset rereads it, clears the SET
    overlay, and wipes the trap store.
 4. **KnownFields(true).** camelCase YAML. kebab aliases reject.
@@ -68,7 +69,10 @@ Changing an invariant requires an ADR first.
 9. **SET is an overlay.** Not an apply verb. REST `oids:set` is the
    same overlay. Reset restores bootstrap values.
 10. **No SMIv2 compiler in 1.0.** Explicit YAML maps.
-11. **DTLS/TCP SNMP is v1.1.** `enabled: true` rejects.
+11. **DTLS/TCP SNMP is schema-legal in 1.1.** `enabled: true`
+    validates under per-listener TCP constraints and DTLS file-ref
+    certs. TLSTM/TSM is not implemented. Do not add
+    `spec.listeners.tls`.
 12. **No Prometheus client.** Hand-rolled OpenMetrics.
 13. **Docs ship with the change.** CI failures are hardened.
 14. **Identity for views is community string or v3 user**, not client
@@ -86,6 +90,8 @@ Normalized (strip `-` `_`, lower-case) prefixes:
 - `gopkg.in/yaml.v3`
 - `github.com/modelcontextprotocol/go-sdk v1.7.0`
 - `github.com/oklog/ulid/v2`
+- `github.com/pion/dtls/v3` (v3.1.8 or newer patch `govulncheck`
+  accepts; inbound `ListenWithOptions` only)
 
 Stdlib crypto for USM. New deps need a PR justification and
 Apache-2.0 license check.

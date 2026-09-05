@@ -112,6 +112,8 @@ type RevisionView struct {
 }
 
 // ListenerStatus is one bound (or configured) listener.
+// Names are agent, traps, management, and when enabled agent-tcp,
+// traps-tcp, agent-dtls, traps-dtls. Address is "off" when that plane is disabled.
 type ListenerStatus struct {
 	Name    string
 	Address string

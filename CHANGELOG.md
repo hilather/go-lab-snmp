@@ -20,6 +20,76 @@ All notable user-visible and operator-visible changes are recorded here.
 
 - None.
 
+## [1.1.0] - 2026-09-05
+
+Notes: [docs/releases/v1.1.0.md](docs/releases/v1.1.0.md). TLS-001 (RFC 3430 TCP + DTLS 1.2 record layer) is no longer deferred.
+
+### Added
+
+- Agent RFC 3430 TCP and DTLS 1.2 record-layer listeners
+  (`internal/snmpagent`). pion/dtls v3.1.8 with AEAD cipher suites,
+  live CIDR admission, and BER TCP framing. TCP-only (UDP off) is
+  supported.
+- Trap/inform RFC 3430 TCP and DTLS 1.2 record-layer listeners
+  (`internal/snmpsink`). INFORM and v3 Report share one ack path
+  (`WriteTCP` / `Write` on the accepted connection, never Dial).
+  Store-then-ack is unchanged (ADR 0007).
+- v1.1 residual increment design (`IMPLEMENTATION-DESIGN-v1.1.md`),
+  ADR 0016 (RFC 3430 TCP BER-length framing; DTLS 1.2 record layer on
+  10161/10162, not TLSTM/TSM), and the v1.1 task board (FND-110).
+- TCP/DTLS listener fields are schema-legal: `tcp.enabled` /
+  `dtls.enabled` validate under per-listener address rules and
+  file-ref certs (CFG-110).
+- Snapshot compiles TCP/DTLS listener fields. Ready overlays Off
+  from the active snapshot so disabled transports do not fail Ready.
+  `GET /v1/status` may list `agent-tcp` / `traps-tcp` /
+  `agent-dtls` / `traps-dtls` when enabled (address `off` when that
+  plane is disabled). Gauge `labsnmp_listeners_bound` (APP-110).
+- RFC 3430 BER TCP framing in `internal/snmpwire`: `ReadTCP` /
+  `WriteTCP` frame one SNMP SEQUENCE by identifier+length. A framed
+  Get starts with `0x30`.
+- `labsnmp serve --dtls-listen` / `--dtls-trap-listen` (`ADDR|off`).
+  Serve may start with agent UDP off if TCP or DTLS agent is on.
+  Bind failure of any enabled data-plane listener is exit 1. Image
+  `EXPOSE 161/tcp 162/tcp` (not `10161/udp`). Smoke compose stays
+  UDP `:1161`/`:1162`.
+- Operator SPA Status and Overview show Agent TCP / Agent DTLS
+  dt/dd when `status.listeners` includes `agent-tcp` / `agent-dtls`.
+  Features page still twelve ids. No new capability IDs (UI-110).
+- GHCR publish on `v*` tags is a multi-arch manifest list
+  (`linux/amd64`, `linux/arm64`). CI unit jobs stay amd64; arm64 is
+  publish-only. `latest` remains non-prerelease tags only. The digest
+  of the manifest list is the pin.
+- Release notes `docs/releases/v1.1.0.md` (GA-110).
+
+### Changed
+
+- `tls_unsupported` is no longer emitted on `tcp`/`dtls` enable.
+  Missing DTLS certs are `validation_failed`/`required`. Identities
+  are required when any agent-plane listener will bind. AGENTS §11
+  and known-limitations match 1.1 (TLSTM/TSM residual; TLS-over-TCP
+  residual). Catalog `tls_unsupported` is retained for TLS-over-TCP.
+- D12, docs/08 threat table, labinfo `tls` note, and README match
+  v1.1: TCP/DTLS record layer is no longer deferred; TLSTM/TSM and
+  TLS-over-TCP remain residual. Integrator example Ref is `v1.1.0`.
+- Lab overlay (`examples/labsnmp.yaml`) keeps `tcp.enabled` /
+  `dtls.enabled` false. v1.1 can enable TCP/DTLS with file-ref
+  certs; this BOM does not. Integrator pin remains out of band.
+
+### Fixed
+
+- Reset rebinds UDP agent and trap sockets (bind-new-first). Changing
+  bootstrap `listeners.agent.address` / `traps.address` then Reset moves
+  the PacketConn. An empty desired UDP address stops that listener.
+  A failed new bind leaves the old sockets serving (U2).
+- INFORM acknowledgements increment `InformAck` before `WriteTo` so
+  the counter cannot race the reply (`internal/snmpsink`). Store-then-ack
+  is unchanged (ADR 0007).
+
+### Removed
+
+- None.
+
 ## [1.0.0] - 2026-09-05
 
 Notes: [docs/releases/v1.0.0.md](docs/releases/v1.0.0.md). TLS-001 stays deferred.

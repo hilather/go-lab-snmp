@@ -4,7 +4,9 @@ metadata:
   name: x
 spec:
   listeners:
-    tcp:
+    agent:
+      enabled: false
+    traps:
       enabled: true
   maps:
     - name: system-if

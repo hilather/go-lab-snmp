@@ -96,6 +96,69 @@ func TestCompilePreservesUptimeAndEngineOnApply(t *testing.T) {
 	}
 }
 
+func TestCompileCopiesTCPDTLSFields(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	full, err := config.LoadFile("testdata/config/valid/full.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := Compile(full, CompileOpts{BaseDir: repoRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.TCPEnabled || snap.DTLSEnabled {
+		t.Fatalf("default transports: tcp=%v dtls=%v", snap.TCPEnabled, snap.DTLSEnabled)
+	}
+
+	tcpSt, err := config.LoadFile("testdata/config/valid/tcp-enabled.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcpSnap, err := Compile(tcpSt, CompileOpts{BaseDir: repoRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tcpSnap.TCPEnabled {
+		t.Fatal("tcp.enabled")
+	}
+	if tcpSnap.TCPAddress != "" {
+		t.Fatalf("inherit address must stay empty, got %q", tcpSnap.TCPAddress)
+	}
+	if tcpSnap.AgentAddress != ":1161" {
+		t.Fatalf("agent %q", tcpSnap.AgentAddress)
+	}
+
+	only, err := config.LoadFile("testdata/config/valid/tcp-only.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onlySnap, err := Compile(only, CompileOpts{BaseDir: repoRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !onlySnap.TCPEnabled || onlySnap.AgentEnabled || onlySnap.TCPAddress != ":1161" {
+		t.Fatalf("tcp-only %+v enabled=%v addr=%q", onlySnap.AgentEnabled, onlySnap.TCPEnabled, onlySnap.TCPAddress)
+	}
+
+	dtlsSt, err := config.LoadFile("testdata/config/valid/dtls-enabled.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dtlsSnap, err := Compile(dtlsSt, CompileOpts{BaseDir: repoRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dtlsSnap.DTLSEnabled {
+		t.Fatal("dtls.enabled")
+	}
+	if dtlsSnap.DTLSAddress != config.DefaultDTLSAddress || dtlsSnap.DTLSTrapsAddress != config.DefaultDTLSTrapsAddress {
+		t.Fatalf("dtls addrs %q %q", dtlsSnap.DTLSAddress, dtlsSnap.DTLSTrapsAddress)
+	}
+	if dtlsSnap.DTLSCertFile == "" || dtlsSnap.DTLSKeyFile == "" {
+		t.Fatal("dtls cert file refs")
+	}
+}
+
 func TestCompileRevisionIgnoresOverlay(t *testing.T) {
 	t.Chdir(repoRoot(t))
 	st, err := config.LoadFile("testdata/config/valid/defaults.yaml")

@@ -34,7 +34,8 @@ QA needs an SNMP endpoint that is version-accurate, identity-accurate, and map-a
 ## Invariants
 
 1. **Two planes, one process.** Agent and trap goroutines never import control/web/http.
-2. **Never forward, never originate.** No Dial. INFORM ack is `WriteTo` source.
+2. **Never forward, never originate.** No Dial. INFORM ack is `WriteTo`
+   on UDP or `Write`/`WriteTCP` on the accepted TCP/DTLS connection.
 3. **Never write the bootstrap file.**
 4. **YAML KnownFields fail-closed.** camelCase wire names.
 5. **Secrets file-ref.** v3 keys never inline. Management token ≥32 bytes.
@@ -42,21 +43,27 @@ QA needs an SNMP endpoint that is version-accurate, identity-accurate, and map-a
 7. **Ready** = enabled agent and/or trap listeners bound + snapshot installed + (management bound OR `--management-listen=off`).
 8. **Community/user → exactly one named map.** Split-horizon is two maps.
 9. **SET overlay is ephemeral.** Reset drops it.
-10. **DTLS / TCP SNMP `enabled: true` rejected in 1.0.**
+10. **DTLS / TCP SNMP `enabled: true` is legal in 1.1** when
+    per-listener constraints hold. TLSTM/TSM is not implemented.
 
 ## Process model
 
 ```text
 SUT UDP/161 --> snmpagent --> snmpwire.Decode --> usm/community
+SUT TCP/161 --> snmpagent ReadTCP (RFC 3430 BER length)
+SUT DTLS/10161 --> snmpagent ListenWithOptions (DTLS 1.2 record layer)
                      |                |
                      |                v
                      |          view + mibtree.Get/GetNext/GetBulk/Set
                      |                |
                      |                v
                      |          snmpwire.Encode Response
+                     |          WriteTo / WriteTCP / Write
                      |
 SUT UDP/162 --> snmpsink --> decode --> store.Insert
-                     |                    (INFORM -> WriteTo source)
+SUT TCP/162 --> snmpsink ReadTCP (RFC 3430 BER length)
+SUT DTLS/10162 --> snmpsink ListenWithOptions
+                     |                    (INFORM -> WriteTo / WriteTCP / Write)
                      |
               atomic.Pointer[Snapshot]
                      ^
@@ -71,8 +78,8 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 | `internal/snmpwire` | BER + SNMPv1/v2c/v3 message + PDUs |
 | `internal/usm` | v3 USM auth/priv, engine ID, time window |
 | `internal/mibtree` | lexicographic OID tree per map |
-| `internal/snmpagent` | UDP 161 listen, dispatch |
-| `internal/snmpsink` | UDP 162 listen, INFORM ack, insert |
+| `internal/snmpagent` | UDP 161, RFC 3430 TCP, DTLS 1.2 record layer; dispatch |
+| `internal/snmpsink` | UDP 162, RFC 3430 TCP, DTLS 1.2 record layer; INFORM ack |
 | `internal/store` | trap ring + SET overlay |
 | `internal/compiler` | Normalize + Validate + compile Snapshot |
 | `internal/snapshot` | immutable Snapshot + atomic Store |
@@ -101,7 +108,14 @@ SUT UDP/162 --> snmpsink --> decode --> store.Insert
 
 ## Listen
 
-- `net.ListenPacket("udp", addr)` for agent and sink
+- `net.ListenPacket("udp", addr)` for agent and sink UDP
+- `net.Listen("tcp", addr)` + RFC 3430 BER `ReadTCP`/`WriteTCP` for
+  agent TCP (161/tcp) and trap TCP (162/tcp)
+- pion/dtls v3 `ListenWithOptions` for agent DTLS (10161/udp) and
+  trap DTLS (10162/udp) 1.2 (AEAD suites only; live CIDR
+  `WithOnConnectionAttempt`; `HandshakeContext` error closes without
+  handle). Inner PDU is community or USM; TLSTM/TSM is not
+  implemented. Never `dtls.Dial` in production.
 - Client IP `netip.Addr.Unmap()` before CIDR admission
 - UID 65532 vs :161/:162 needs `CAP_NET_BIND_SERVICE` on integrator compose
 - Local tests bind `:1161` / `:1162` with cap_drop ALL

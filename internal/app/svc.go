@@ -42,31 +42,38 @@ type Options struct {
 	TrapListenOverride string
 	// MgmtListenOverride is --management-listen including off/none/-.
 	MgmtListenOverride string
-	Metrics            *observability.Registry
-	Logger             *observability.Logger
+	// DTLSListenOverride is --dtls-listen including off/none/-.
+	DTLSListenOverride string
+	// DTLSTrapListenOverride is --dtls-trap-listen including off/none/-.
+	DTLSTrapListenOverride string
+	Metrics                *observability.Registry
+	Logger                 *observability.Logger
 }
 
 // App is the process-local Service implementation.
 type App struct {
-	mu            sync.Mutex
-	snaps         *snapshot.Store
-	now           func() time.Time
-	clock         testutil.Clock
-	bootstrapPath string
-	idemp         *idempCache
-	audit         *audit.Fanout
-	resetHooks    []func()
-	applyHooks    []func()
-	overlay       *store.Overlay
-	queries       *store.QueryRing
-	traps         *store.TrapRing
-	snmpOverride  string
-	trapOverride  string
-	mgmtOverride  string
+	mu               sync.Mutex
+	snaps            *snapshot.Store
+	now              func() time.Time
+	clock            testutil.Clock
+	bootstrapPath    string
+	idemp            *idempCache
+	audit            *audit.Fanout
+	resetHooks       []func()
+	applyHooks       []func()
+	overlay          *store.Overlay
+	queries          *store.QueryRing
+	traps            *store.TrapRing
+	snmpOverride     string
+	trapOverride     string
+	mgmtOverride     string
+	dtlsOverride     string
+	dtlsTrapOverride string
 
-	snmpRebind func(addr string) error
-	trapRebind func(addr string) error
-	httpRebind func(addr string) error
+	snmpRebind    func(addr string) error
+	trapRebind    func(addr string) error
+	httpRebind    func(addr string) error
+	dataPlaneSync func(desired DesiredListeners) error
 
 	metrics *observability.Registry
 	logger  *observability.Logger
@@ -113,20 +120,22 @@ func New(opts Options) *App {
 		auditMax = defaultAuditMax
 	}
 	return &App{
-		snaps:         opts.Snapshots,
-		now:           opts.Now,
-		clock:         opts.Clock,
-		bootstrapPath: opts.BootstrapPath,
-		idemp:         newIdempCache(idempMax),
-		audit:         audit.NewFanout(auditMax, opts.Auditor),
-		overlay:       opts.Overlay,
-		queries:       opts.Queries,
-		traps:         opts.Traps,
-		snmpOverride:  opts.SNMPListenOverride,
-		trapOverride:  opts.TrapListenOverride,
-		mgmtOverride:  opts.MgmtListenOverride,
-		metrics:       opts.Metrics,
-		logger:        opts.Logger,
+		snaps:            opts.Snapshots,
+		now:              opts.Now,
+		clock:            opts.Clock,
+		bootstrapPath:    opts.BootstrapPath,
+		idemp:            newIdempCache(idempMax),
+		audit:            audit.NewFanout(auditMax, opts.Auditor),
+		overlay:          opts.Overlay,
+		queries:          opts.Queries,
+		traps:            opts.Traps,
+		snmpOverride:     opts.SNMPListenOverride,
+		trapOverride:     opts.TrapListenOverride,
+		mgmtOverride:     opts.MgmtListenOverride,
+		dtlsOverride:     opts.DTLSListenOverride,
+		dtlsTrapOverride: opts.DTLSTrapListenOverride,
+		metrics:          opts.Metrics,
+		logger:           opts.Logger,
 	}
 }
 
@@ -220,6 +229,25 @@ func (s *App) Traps() *store.TrapRing {
 // Close is a no-op placeholder for Boot callers.
 func (s *App) Close() {}
 
+// DesiredListeners is the data-plane bind set serve and Reset pass to Sync.
+// An empty address means that listener is off.
+type DesiredListeners struct {
+	AgentUDP, TrapUDP   string
+	AgentTCP, TrapTCP   string
+	AgentDTLS, TrapDTLS string
+	// DTLS cert paths are filled from the candidate snapshot, not Active().
+	DTLSCertFile, DTLSKeyFile, DTLSClientCAFile string
+}
+
+// SetDataPlaneSync installs the bind-all-new hook. fn must bind from
+// desired and must not re-read Active().
+func (s *App) SetDataPlaneSync(fn func(desired DesiredListeners) error) {
+	if s == nil {
+		return
+	}
+	s.dataPlaneSync = fn
+}
+
 // SetSNMPRebind installs the bind-new-first hook for the agent listener.
 func (s *App) SetSNMPRebind(fn func(addr string) error) {
 	if s == nil {
@@ -263,6 +291,8 @@ func (s *App) SetHealth(fn func() observability.Facts) {
 }
 
 // HealthFacts is the input to observability.Evaluate.
+// Off flags are overlaid from the active snapshot so disabled
+// transports do not demand a bind.
 func (s *App) HealthFacts() observability.Facts {
 	if s == nil {
 		return observability.Facts{}
@@ -270,13 +300,42 @@ func (s *App) HealthFacts() observability.Facts {
 	s.healthMu.Lock()
 	fn := s.health
 	s.healthMu.Unlock()
-	snapUp := s.Active() != nil
+	var f observability.Facts
 	if fn != nil {
-		f := fn()
-		f.SnapshotUp = snapUp
+		f = fn()
+	}
+	return s.overlayHealthOff(f, s.Active())
+}
+
+func (s *App) overlayHealthOff(f observability.Facts, snap *snapshot.Snapshot) observability.Facts {
+	f.SnapshotUp = snap != nil
+	if snap == nil {
 		return f
 	}
-	return observability.Facts{SnapshotUp: snapUp}
+	udpAgent := effectiveSNMP(s.snmpOverride, snap.AgentAddress, snap.AgentEnabled)
+	udpTrap := effectiveTrap(s.trapOverride, snap.TrapAddress, snap.TrapsEnabled)
+	if udpAgent == "" {
+		f.AgentOff = true
+	}
+	if udpTrap == "" {
+		f.TrapOff = true
+	}
+	if effectiveTCP(snap.TCPEnabled, snap.TCPAddress, udpAgent) == "" {
+		f.TCPOff = true
+	}
+	if effectiveTCP(snap.TCPEnabled, snap.TCPTrapsAddress, udpTrap) == "" {
+		f.TrapTCPOff = true
+	}
+	if effectiveDTLS(s.dtlsOverride, snap.DTLSAddress, snap.DTLSEnabled) == "" {
+		f.DTLSOff = true
+	}
+	if effectiveDTLS(s.dtlsTrapOverride, snap.DTLSTrapsAddress, snap.DTLSEnabled) == "" {
+		f.TrapDTLSOff = true
+	}
+	if s.mgmtOverride != "" && managementOff(s.mgmtOverride) {
+		f.MgmtOff = true
+	}
+	return f
 }
 
 // OnReset registers a hook fired after a successful Reset (outside the mutex).
@@ -427,6 +486,20 @@ func effectiveTrap(override, yamlAddr string, enabled bool) string {
 	return effectiveSNMP(override, yamlAddr, enabled)
 }
 
+func effectiveTCP(tcpEnabled bool, tcpAddr, udpEffective string) string {
+	if !tcpEnabled {
+		return ""
+	}
+	if addr := strings.TrimSpace(tcpAddr); addr != "" {
+		return addr
+	}
+	return udpEffective
+}
+
+func effectiveDTLS(override, yamlAddr string, enabled bool) string {
+	return effectiveSNMP(override, yamlAddr, enabled)
+}
+
 func effectiveMgmt(override, yamlAddr string) string {
 	if override != "" {
 		if managementOff(override) {
@@ -435,4 +508,11 @@ func effectiveMgmt(override, yamlAddr string) string {
 		return override
 	}
 	return yamlAddr
+}
+
+func displayListen(addr string) string {
+	if addr == "" {
+		return "off"
+	}
+	return addr
 }

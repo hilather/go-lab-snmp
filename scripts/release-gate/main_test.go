@@ -45,6 +45,14 @@ func TestValidateRepoV1Notes(t *testing.T) {
 	}
 }
 
+func TestValidateRepoV11Notes(t *testing.T) {
+	root := repoRootForTest(t)
+	path := filepath.Join(root, "docs", "releases", "v1.1.0.md")
+	if err := validateNotes(path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func repoRootForTest(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()

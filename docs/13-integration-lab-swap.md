@@ -48,10 +48,11 @@ Do not reuse a `snmpd` compose name.
 ```
 URL:  https://github.com/hilather/go-lab-snmp
 Dest: third_party/go-lab-snmp
-Ref:  v1.0.0-rc.1
+Ref:  v1.1.0
 ```
 
-Do not edit `third_party/` in place.
+The integrator pin is out of band. Ref is the last GA tag. Do not
+edit `third_party/` in place.
 
 ## Locked ports
 
@@ -148,7 +149,12 @@ Connection endpoints:
 - `snmp-trap` udp `${LAB_PUBLIC_HOST}:${LABSNMP_TRAP_PORT}`
 - MCP `http://${LAB_PUBLIC_HOST}:${LABSNMP_REST_PORT}/mcp`
 
-Parameters: no TLS in 1.0, maps `public-if` / `private-if`,
+Parameters: DTLS record layer on IANA 10161/10162; inner PDU is
+community or USM; TLSTM/TSM is not implemented. RFC 6353
+TLS-over-TCP is residual. `connection.parameters.tls` is that
+capability note; the lab overlay keeps `tcp.enabled` /
+`dtls.enabled` false (v1.1 can enable TCP/DTLS with file-ref
+certs; this BOM does not). Maps `public-if` / `private-if`,
 auth none on v1/v2c data plane, v3 authPriv SHA-256/AES-128.
 
 `stageLabinfoCreds` must copy `secrets/labsnmp-token` (and the

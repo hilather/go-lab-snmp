@@ -16,11 +16,16 @@ import (
 )
 
 const (
-	DefaultMaxInflight  = 1024
-	DefaultShutdownWait = 5 * time.Second
+	DefaultMaxInflight   = 1024
+	DefaultShutdownWait  = 5 * time.Second
+	MaxAcceptedConns     = 1024
+	tcpIdleTimeout       = 30 * time.Second
+	dtlsIdleTimeout      = 30 * time.Second
+	dtlsHandshakeTimeout = 10 * time.Second
 )
 
-// Config is the UDP/161 listener configuration.
+// Config is the agent listener configuration. Addr may be empty when
+// only TCP or DTLS will bind later via SwapTCP / SwapDTLS.
 type Config struct {
 	Addr        string
 	Store       *snapshot.Store
@@ -30,9 +35,10 @@ type Config struct {
 	MaxInflight int
 	Metrics     *observability.Registry
 	Logger      *observability.Logger
+	BaseDir     string
 }
 
-// Server is a unicast SNMPv1/v2c/v3 UDP listener.
+// Server is a unicast SNMPv1/v2c/v3 listener (UDP, TCP, DTLS).
 type Server struct {
 	cfg     Config
 	store   *snapshot.Store
@@ -47,13 +53,22 @@ type Server struct {
 
 	mu       sync.Mutex
 	udp      net.PacketConn
+	udpGen   uint64
 	bindAddr string
+	tcp      net.Listener
+	tcpGen   uint64
+	dtls     net.Listener
+	dtlsGen  uint64
 	started  bool
 	stopped  bool
 
-	inflight chan struct{}
-	global   *queryLimiter
-	perIP    *queryLimiter
+	inflight    chan struct{}
+	tcpSlots    chan struct{}
+	dtlsSlots   chan struct{}
+	tcpStreams  map[net.Conn]struct{}
+	dtlsStreams map[net.Conn]struct{}
+	global      *queryLimiter
+	perIP       *queryLimiter
 
 	wg sync.WaitGroup
 
@@ -62,6 +77,8 @@ type Server struct {
 	Admission atomic.Int64
 	Dropped   atomic.Int64
 	Served    atomic.Int64
+
+	observeWrite func([]byte, error)
 }
 
 // New validates cfg. Start binds and serves.
@@ -71,9 +88,6 @@ func New(cfg Config) (*Server, error) {
 	}
 	if cfg.Store.Load() == nil {
 		return nil, errors.New("snmpagent: snapshot is required")
-	}
-	if cfg.Addr == "" {
-		return nil, errors.New("snmpagent: Addr is required")
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = DefaultMaxInflight
@@ -95,19 +109,23 @@ func New(cfg Config) (*Server, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Server{
-		cfg:      cfg,
-		store:    cfg.Store,
-		overlay:  cfg.Overlay,
-		queries:  cfg.Queries,
-		clock:    clk,
-		metrics:  cfg.Metrics,
-		logger:   cfg.Logger,
-		ctx:      ctx,
-		cancel:   cancel,
-		bindAddr: cfg.Addr,
-		inflight: make(chan struct{}, cfg.MaxInflight),
-		global:   newQueryLimiter(float64(snap.MaxPerSec), float64(snap.MaxPerSec), now),
-		perIP:    newQueryLimiter(float64(snap.MaxPerIP), float64(snap.MaxPerIP), now),
+		cfg:         cfg,
+		store:       cfg.Store,
+		overlay:     cfg.Overlay,
+		queries:     cfg.Queries,
+		clock:       clk,
+		metrics:     cfg.Metrics,
+		logger:      cfg.Logger,
+		ctx:         ctx,
+		cancel:      cancel,
+		bindAddr:    cfg.Addr,
+		inflight:    make(chan struct{}, cfg.MaxInflight),
+		tcpSlots:    make(chan struct{}, MaxAcceptedConns),
+		dtlsSlots:   make(chan struct{}, MaxAcceptedConns),
+		tcpStreams:  map[net.Conn]struct{}{},
+		dtlsStreams: map[net.Conn]struct{}{},
+		global:      newQueryLimiter(float64(snap.MaxPerSec), float64(snap.MaxPerSec), now),
+		perIP:       newQueryLimiter(float64(snap.MaxPerIP), float64(snap.MaxPerIP), now),
 	}, nil
 }
 
@@ -144,6 +162,9 @@ func (s *Server) Start() error {
 	if s.stopped {
 		return errors.New("snmpagent: start after shutdown")
 	}
+	if s.cfg.Addr == "" {
+		return errors.New("snmpagent: Addr is required")
+	}
 	pc, err := net.ListenPacket("udp", s.cfg.Addr)
 	if err != nil {
 		return fmt.Errorf("snmpagent: udp listen: %w", err)
@@ -151,9 +172,111 @@ func (s *Server) Start() error {
 	s.udp = pc
 	s.bindAddr = s.cfg.Addr
 	s.started = true
+	s.udpGen++
+	gen := s.udpGen
 	s.wg.Add(1)
-	go s.serveUDP()
+	go s.serveUDP(gen)
 	return nil
+}
+
+// SwapUDP installs pc as the serving PacketConn and starts a read loop.
+// The previous conn is returned for the caller to close. A nil pc unbinds.
+func (s *Server) SwapUDP(pc net.PacketConn) net.PacketConn {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old := s.udp
+	s.udp = pc
+	s.udpGen++
+	if pc != nil {
+		s.bindAddr = pc.LocalAddr().String()
+		s.started = true
+		gen := s.udpGen
+		s.wg.Add(1)
+		go s.serveUDP(gen)
+	} else {
+		s.bindAddr = ""
+	}
+	return old
+}
+
+// Rebind binds addr first, then closes the previous PacketConn.
+// Empty addr unbinds. The previous socket keeps serving if Listen fails.
+func (s *Server) Rebind(addr string) error {
+	if s == nil {
+		return errors.New("snmpagent: nil server")
+	}
+	if addr == "" {
+		old := s.SwapUDP(nil)
+		if old != nil {
+			_ = old.Close()
+		}
+		return nil
+	}
+	s.mu.Lock()
+	same := s.bindAddr == addr && s.udp != nil && !s.stopped
+	s.mu.Unlock()
+	if same {
+		return nil
+	}
+	pc, err := net.ListenPacket("udp", addr)
+	if err != nil {
+		return fmt.Errorf("snmpagent: udp listen: %w", err)
+	}
+	old := s.SwapUDP(pc)
+	if old != nil {
+		_ = old.Close()
+	}
+	s.mu.Lock()
+	s.bindAddr = addr
+	s.mu.Unlock()
+	return nil
+}
+
+// SwapTCP installs ln as the serving TCP listener and starts Accept.
+// The previous listener is returned for the caller to close. A nil ln unbinds.
+func (s *Server) SwapTCP(ln net.Listener) net.Listener {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	old := s.tcp
+	s.tcp = ln
+	s.tcpGen++
+	conns := stealConns(s.tcpStreams)
+	if ln != nil {
+		s.started = true
+		gen := s.tcpGen
+		s.wg.Add(1)
+		go s.serveTCP(gen)
+	}
+	s.mu.Unlock()
+	closeConns(conns)
+	return old
+}
+
+// SwapDTLS installs ln as the serving DTLS listener and starts Accept.
+// The previous listener is returned for the caller to close. A nil ln unbinds.
+func (s *Server) SwapDTLS(ln net.Listener) net.Listener {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	old := s.dtls
+	s.dtls = ln
+	s.dtlsGen++
+	conns := stealConns(s.dtlsStreams)
+	if ln != nil {
+		s.started = true
+		gen := s.dtlsGen
+		s.wg.Add(1)
+		go s.serveDTLS(gen)
+	}
+	s.mu.Unlock()
+	closeConns(conns)
+	return old
 }
 
 // Bound reports whether a PacketConn is currently serving.
@@ -166,10 +289,29 @@ func (s *Server) Bound() bool {
 	return s.udp != nil && s.started && !s.stopped
 }
 
-// Ready is the agent clause: snapshot loaded and agent bound.
-// Trap Ready is snmpsink.Server.Ready when traps.enabled / --trap-listen.
+// BoundTCP reports whether a TCP listener is currently serving.
+func (s *Server) BoundTCP() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tcp != nil && !s.stopped
+}
+
+// BoundDTLS reports whether a DTLS listener is currently serving.
+func (s *Server) BoundDTLS() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dtls != nil && !s.stopped
+}
+
+// Ready is the agent clause: snapshot loaded and at least one agent listener bound.
 func (s *Server) Ready() bool {
-	return s != nil && s.store != nil && s.store.Load() != nil && s.Bound()
+	return s != nil && s.store != nil && s.store.Load() != nil && (s.Bound() || s.BoundTCP() || s.BoundDTLS())
 }
 
 // Addr is the bound UDP address, or nil.
@@ -182,7 +324,27 @@ func (s *Server) Addr() net.Addr {
 	return s.udp.LocalAddr()
 }
 
-// Shutdown stops the read loop and waits up to ctx.
+// TCPAddr is the bound TCP address, or nil.
+func (s *Server) TCPAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tcp == nil {
+		return nil
+	}
+	return s.tcp.Addr()
+}
+
+// DTLSAddr is the bound DTLS address, or nil.
+func (s *Server) DTLSAddr() net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dtls == nil {
+		return nil
+	}
+	return s.dtls.Addr()
+}
+
+// Shutdown stops the read loops and waits up to ctx.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopped {
@@ -192,10 +354,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.stopped = true
 	s.cancel()
 	udp := s.udp
+	tcp := s.tcp
+	dtlsLn := s.dtls
+	s.udp = nil
+	s.tcp = nil
+	s.dtls = nil
+	tcpConns := stealConns(s.tcpStreams)
+	dtlsConns := stealConns(s.dtlsStreams)
 	s.mu.Unlock()
 	if udp != nil {
 		_ = udp.Close()
 	}
+	if tcp != nil {
+		_ = tcp.Close()
+	}
+	if dtlsLn != nil {
+		_ = dtlsLn.Close()
+	}
+	closeConns(tcpConns)
+	closeConns(dtlsConns)
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -209,12 +386,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (s *Server) conn() net.PacketConn {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.udp
-}
-
 func (s *Server) syncAdmission(rt *Runtime) {
 	if s == nil || rt == nil {
 		return
@@ -223,7 +394,7 @@ func (s *Server) syncAdmission(rt *Runtime) {
 	s.perIP.setRate(float64(rt.MaxPerIP), float64(rt.MaxPerIP))
 }
 
-func (s *Server) serveUDP() {
+func (s *Server) serveUDP(gen uint64) {
 	defer s.wg.Done()
 	max := int(config.DefaultMaxMessageBytes)
 	if snap := s.store.Load(); snap != nil && int(snap.MaxMessageBytes) > max {
@@ -237,7 +408,13 @@ func (s *Server) serveUDP() {
 		if s.ctx.Err() != nil {
 			return
 		}
-		pc := s.conn()
+		s.mu.Lock()
+		if s.udpGen != gen {
+			s.mu.Unlock()
+			return
+		}
+		pc := s.udp
+		s.mu.Unlock()
 		if pc == nil {
 			return
 		}
@@ -261,9 +438,78 @@ func (s *Server) serveUDP() {
 		go func() {
 			defer s.wg.Done()
 			defer func() { <-s.inflight }()
-			s.handle(pkt, addr)
+			s.handle(udpReply{pc: pc, addr: addr}, pkt)
 		}()
 	}
+}
+
+func (s *Server) maxMessageBytes() int64 {
+	max := config.DefaultMaxMessageBytes
+	if s != nil && s.store != nil {
+		if snap := s.store.Load(); snap != nil && snap.MaxMessageBytes > max {
+			max = snap.MaxMessageBytes
+		}
+	}
+	if max < 1 {
+		max = 64 << 10
+	}
+	return max
+}
+
+func takeSlot(slots chan struct{}) bool {
+	if slots == nil {
+		return false
+	}
+	select {
+	case slots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func releaseSlot(slots chan struct{}) {
+	if slots == nil {
+		return
+	}
+	select {
+	case <-slots:
+	default:
+	}
+}
+
+func stealConns(m map[net.Conn]struct{}) []net.Conn {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]net.Conn, 0, len(m))
+	for c := range m {
+		out = append(out, c)
+		delete(m, c)
+	}
+	return out
+}
+
+func closeConns(conns []net.Conn) {
+	for _, c := range conns {
+		if c != nil {
+			_ = c.Close()
+		}
+	}
+}
+
+func trackConn(m map[net.Conn]struct{}, c net.Conn) {
+	if m == nil || c == nil {
+		return
+	}
+	m[c] = struct{}{}
+}
+
+func untrackConn(m map[net.Conn]struct{}, c net.Conn) {
+	if m == nil || c == nil {
+		return
+	}
+	delete(m, c)
 }
 
 func isClosed(err error) bool {

@@ -50,12 +50,14 @@ const usageText = `usage: labsnmp <command>
 
 LabSNMP is a laboratory SNMPv1/v2c/v3 agent with a receive-only
 trap/inform sink. validate and canonicalize load a fail-closed
-labsnmp.dev/v1alpha1 document. serve binds the agent and trap UDP
-sockets. --trap-listen empty uses YAML traps.address; off disables.
---management-listen defaults off. YAML management.address does not
-bind unless this flag is an address. spec.ui.enabled false keeps
-GET / as 404 problem+json. /v1 requires bearer or labsnmp_session
-except health live/ready (and metrics if publicPath).
+labsnmp.dev/v1alpha1 document. serve binds the agent and trap
+UDP/TCP/DTLS sockets. --trap-listen empty uses YAML traps.address;
+off disables. --dtls-listen / --dtls-trap-listen are ADDR|off
+(empty uses YAML). Agent UDP off is legal if TCP or DTLS agent
+will bind. --management-listen defaults off. YAML management.address
+does not bind unless this flag is an address. spec.ui.enabled false
+keeps GET / as 404 problem+json. /v1 requires bearer or
+labsnmp_session except health live/ready (and metrics if publicPath).
 
 Commands:
   version         print build and protocol metadata
@@ -63,7 +65,8 @@ Commands:
   validate        fail-closed YAML check (--config)
   canonicalize    emit canonical spec (--config, --format yaml|json)
   serve           bind SNMP (--config, --snmp-listen, --trap-listen,
-                  --management-listen, --shutdown-timeout, --pid-file)
+                  --dtls-listen, --dtls-trap-listen, --management-listen,
+                  --shutdown-timeout, --pid-file)
   healthcheck     probe GET /v1/health/ready (--url)
   mcp-stdio       Streamable MCP over stdio (--config, --token-file)
 `

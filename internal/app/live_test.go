@@ -14,7 +14,10 @@ func TestHealthFactsFailClosed(t *testing.T) {
 	svc, _ := mustBoot(t)
 	f := svc.HealthFacts()
 	if f.AgentBound || f.TrapBound || f.MgmtBound || f.MgmtOff || f.AgentOff || f.TrapOff {
-		t.Fatalf("default facts must not assume listeners: %+v", f)
+		t.Fatalf("default facts must not assume UDP/mgmt listeners: %+v", f)
+	}
+	if !f.TCPOff || !f.TrapTCPOff || !f.DTLSOff || !f.TrapDTLSOff {
+		t.Fatalf("disabled transports must overlay Off: %+v", f)
 	}
 	if observability.Evaluate(f).Ready {
 		t.Fatal("ready without SetHealth")
@@ -24,6 +27,121 @@ func TestHealthFactsFailClosed(t *testing.T) {
 	})
 	if !observability.Evaluate(svc.HealthFacts()).Ready {
 		t.Fatal("SetHealth should make ready")
+	}
+}
+
+func TestHealthFactsDefaultYAMLStaysReady(t *testing.T) {
+	svc, _ := mustBoot(t)
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{AgentBound: true, TrapBound: true, MgmtOff: true}
+	})
+	f := svc.HealthFacts()
+	if !f.TCPOff || !f.DTLSOff {
+		t.Fatalf("tcp.enabled false must overlay TCPOff: %+v", f)
+	}
+	if !observability.Evaluate(f).Ready {
+		t.Fatal("default YAML tcp.enabled false must stay Ready")
+	}
+}
+
+func TestHealthFactsTCPOnlyOverlaysAgentOff(t *testing.T) {
+	svc, _ := mustBootNamed(t, "tcp-only.yaml")
+	f := svc.HealthFacts()
+	if !f.AgentOff || !f.TrapOff {
+		t.Fatalf("udp off: %+v", f)
+	}
+	if f.TCPOff {
+		t.Fatalf("agent TCP on: %+v", f)
+	}
+	if !f.TrapTCPOff {
+		t.Fatalf("trap TCP off: %+v", f)
+	}
+}
+
+func TestHealthFactsTCPEnabledUnboundNotReady(t *testing.T) {
+	svc, _ := mustBootNamed(t, "tcp-enabled.yaml")
+	svc.SetHealth(func() observability.Facts {
+		return observability.Facts{AgentBound: true, TrapBound: true, MgmtOff: true}
+	})
+	f := svc.HealthFacts()
+	if f.TCPOff || f.TrapTCPOff {
+		t.Fatalf("enabled TCP must not overlay Off: %+v", f)
+	}
+	if observability.Evaluate(f).Ready {
+		t.Fatal("tcp.enabled unbound must not be Ready")
+	}
+}
+
+func TestStatusListenersUDPOnly(t *testing.T) {
+	svc, _ := mustBoot(t)
+	st, err := svc.Status(context.Background(), actor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range st.Listeners {
+		got[l.Name] = l.Address
+	}
+	for _, n := range []string{"agent", "traps", "management"} {
+		if _, ok := got[n]; !ok {
+			t.Fatalf("missing %s: %+v", n, st.Listeners)
+		}
+	}
+	for _, n := range []string{"agent-tcp", "traps-tcp", "agent-dtls", "traps-dtls"} {
+		if _, ok := got[n]; ok {
+			t.Fatalf("disabled transport listed: %s", n)
+		}
+	}
+}
+
+func TestStatusListenersTCPEnabled(t *testing.T) {
+	svc, _ := mustBootNamed(t, "tcp-enabled.yaml")
+	st, err := svc.Status(context.Background(), actor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range st.Listeners {
+		got[l.Name] = l.Address
+	}
+	if got["agent-tcp"] != ":1161" || got["traps-tcp"] != ":1162" {
+		t.Fatalf("inherited TCP status: %+v", st.Listeners)
+	}
+}
+
+func TestStatusListenersTCPOnly(t *testing.T) {
+	svc, _ := mustBootNamed(t, "tcp-only.yaml")
+	st, err := svc.Status(context.Background(), actor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range st.Listeners {
+		got[l.Name] = l.Address
+	}
+	if got["agent"] != "off" {
+		t.Fatalf("udp agent %q", got["agent"])
+	}
+	if got["agent-tcp"] != ":1161" {
+		t.Fatalf("agent-tcp %q", got["agent-tcp"])
+	}
+	if got["traps-tcp"] != "off" {
+		t.Fatalf("traps-tcp %q", got["traps-tcp"])
+	}
+}
+
+func TestStatusListenersDTLSEnabled(t *testing.T) {
+	svc, _ := mustBootNamed(t, "dtls-enabled.yaml")
+	st, err := svc.Status(context.Background(), actor())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range st.Listeners {
+		got[l.Name] = l.Address
+	}
+	if got["agent-dtls"] != ":10161" || got["traps-dtls"] != ":10162" {
+		t.Fatalf("dtls status: %+v", st.Listeners)
 	}
 }
 

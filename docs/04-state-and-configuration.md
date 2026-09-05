@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Configuration
-Last reviewed: 2026-09-04
+Last reviewed: 2026-09-05
 
 Desired state is one YAML document. SET overlay and traps are not
 desired state. The process never writes the bootstrap file.
@@ -29,11 +29,27 @@ spec: { ... }
 | `agent.address` | `:161` | reset-only |
 | `traps.enabled` | true | |
 | `traps.address` | `:162` | reset-only |
-| `dtls.enabled` | false | `true` → 1.0 validate error |
-| `tcp.enabled` | false | `true` → 1.0 validate error |
+| `tcp.enabled` | false | schema-legal; reset-only |
+| `tcp.address` | empty | inherit UDP agent host:port only if UDP agent is on |
+| `tcp.trapsAddress` | empty | inherit UDP trap host:port only if UDP trap is on |
+| `dtls.enabled` | false | schema-legal; reset-only |
+| `dtls.address` | `:10161` when enabled | must not collide with agent UDP |
+| `dtls.trapsAddress` | `:10162` when enabled | must not collide with trap UDP |
+| `dtls.certFile` | required if enabled | file ref |
+| `dtls.keyFile` | required if enabled | file ref |
+| `dtls.clientCAFile` | empty | optional file ref |
 | `management.address` | empty | off unless CLI flag |
 | `management.restPath` | `/v1` | |
 | `management.mcpPath` | `/mcp` | |
+
+`tcp.enabled: true` with both resulting TCP addresses off is
+`validation_failed`. Empty TCP addresses do not bind when the matching
+UDP listener is off. `dtls.enabled: true` requires `certFile` and
+`keyFile` (resolved CWD then the config directory, then
+`tls.LoadX509KeyPair`). There is no `spec.listeners.tls`. These keys
+are schema-legal in 1.1. Agent and trap TCP/DTLS bind at serve and
+through Reset-driven Sync. Serve may start with agent UDP off if TCP
+or DTLS agent is on.
 
 ### spec.auth
 
@@ -83,9 +99,11 @@ string is the trimmed file contents. Inline `community:`, using `name`
 as the wire string, or `secretFile` on a community row is an unknown
 or validate error.
 
-At least one community **or** one user is required if the agent is
-enabled. Each `map` reference must exist. Community **wire strings**
-must be unique after file resolution. User names must be unique.
+At least one community **or** one user is required if any agent-plane
+listener will bind (UDP agent, agent TCP, or agent DTLS). Each `map`
+reference must exist. Community **wire strings** must be unique after
+file resolution. User names must be unique. At least one agent-plane
+listener must remain possible.
 
 `valueFrom: uptime` is the only dynamic source. The leaf must be
 `type: timeTicks` and `access: read` (or omitted). It is never writable.
@@ -157,5 +175,6 @@ as SNMP SET and is not an apply verb. Overlay does not change revision;
 `storeGeneration` does.
 
 Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
-swap snapshot, increment `storeGeneration`. Never writes the file.
-CLI listen flags still win after Reset.
+rebind UDP agent and trap sockets (bind-new-first; empty address stops
+that listener), swap snapshot, increment `storeGeneration`. Never writes
+the file. CLI listen flags still win after Reset.

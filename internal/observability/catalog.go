@@ -31,6 +31,7 @@ const (
 	MetricBuildInfo         = "labsnmp_build_info"
 	MetricAuthFailTotal     = "labsnmp_auth_fail_total"
 	MetricTelemetryDropped  = "labsnmp_telemetry_dropped_total"
+	MetricListenersBound    = "labsnmp_listeners_bound"
 )
 
 // Frozen structured-log event names.
@@ -138,6 +139,7 @@ func Metrics() []MetricDef {
 		{Name: MetricBuildInfo, Kind: KindGauge, Help: "Build metadata.", Labels: []string{"version", "commit"}},
 		{Name: MetricAuthFailTotal, Kind: KindCounter, Help: "Community and USM authentication failures.", Labels: []string{"version"}},
 		{Name: MetricTelemetryDropped, Kind: KindCounter, Help: "Telemetry samples dropped under policy or cardinality.", Labels: []string{"reason"}},
+		{Name: MetricListenersBound, Kind: KindGauge, Help: "Listener bind state by component (1 bound, 0 enabled-but-unbound; omitted if off).", Labels: []string{"component"}},
 	}
 	sort.Slice(defs, func(i, j int) bool { return defs[i].Name < defs[j].Name })
 	for i := range defs {

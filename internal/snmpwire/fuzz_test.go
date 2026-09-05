@@ -1,6 +1,7 @@
 package snmpwire
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -155,6 +156,48 @@ func FuzzBERInteger(f *testing.F) {
 		if got != v {
 			t.Fatalf("%d -> %d", v, got)
 		}
+	})
+}
+
+func FuzzReadTCP(f *testing.F) {
+	for _, g := range goldenCases() {
+		b, err := Encode(g.msg)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(b)
+	}
+	f.Add([]byte{})
+	f.Add([]byte{0x30})
+	f.Add([]byte{0x30, 0x80})
+	f.Add([]byte{0x30, 0x05})
+	f.Add([]byte{0x30, 0x81, 0x80})
+	f.Add([]byte{0x00, 0x00, 0x00, 0x05})
+	f.Add([]byte{0x02, 0x01, 0x00})
+	f.Add([]byte{0x30, 0x00})
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 2048 {
+			data = data[:2048]
+		}
+		b, err := ReadTCP(bytes.NewReader(data), 2048)
+		if err != nil {
+			return
+		}
+		if len(b) == 0 || b[0] != tagSequence {
+			t.Fatalf("ReadTCP accepted non-SEQUENCE: %x", b)
+		}
+		var buf bytes.Buffer
+		if err := WriteTCP(&buf, b); err != nil {
+			t.Fatal(err)
+		}
+		b2, err := ReadTCP(&buf, 2048)
+		if err != nil {
+			t.Fatalf("round-trip: %v", err)
+		}
+		if !bytes.Equal(b, b2) {
+			t.Fatalf("round-trip mismatch")
+		}
+		_, _ = DecodeMax(b, 2048)
 	})
 }
 

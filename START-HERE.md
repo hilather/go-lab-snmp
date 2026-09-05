@@ -6,7 +6,9 @@ the community or v3 user.
 
 If you want to **implement** it, read `AGENTS.md` then take a wave
 from `tasks/00-program-board.md`. Do not invent capability IDs.
-1.0.0 notes live in `docs/releases/v1.0.0.md`. TLS-001 stays deferred.
+1.1.0 notes live in `docs/releases/v1.1.0.md`. TLS-001 (RFC 3430 TCP
++ DTLS 1.2 record layer) is no longer deferred; TLSTM/TSM is not
+implemented.
 
 ## Build
 
@@ -16,9 +18,11 @@ go build -o bin/labsnmp ./cmd/labsnmp
 ```
 
 `validate` and `canonicalize` load a fail-closed `labsnmp.dev/v1alpha1`
-document. `serve --snmp-listen` binds the agent. `--trap-listen` empty
-uses YAML (`:162` by default); pass `:1162` locally. `--management-listen`
-defaults **off**.
+document. `serve --snmp-listen` binds the agent UDP socket.
+`--trap-listen` empty uses YAML (`:162` by default); pass `:1162`
+locally. `--dtls-listen` / `--dtls-trap-listen` are `ADDR|off`.
+Agent UDP may be `off` if TCP (`tcp.enabled`) or DTLS agent will
+bind. `--management-listen` defaults **off**.
 
 ```
 ./bin/labsnmp validate --config testdata/config/valid/full.yaml

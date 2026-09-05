@@ -91,15 +91,10 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 	snmpAddr := effectiveSNMP(s.snmpOverride, snap.AgentAddress, snap.AgentEnabled)
 	trapAddr := effectiveTrap(s.trapOverride, snap.TrapAddress, snap.TrapsEnabled)
 	mgmtAddr := effectiveMgmt(s.mgmtOverride, snap.ManagementAddress)
-	if snmpAddr == "" {
-		snmpAddr = "off"
-	}
-	if trapAddr == "" {
-		trapAddr = "off"
-	}
-	if mgmtAddr == "" {
-		mgmtAddr = "off"
-	}
+	tcpAgent := effectiveTCP(snap.TCPEnabled, snap.TCPAddress, snmpAddr)
+	tcpTrap := effectiveTCP(snap.TCPEnabled, snap.TCPTrapsAddress, trapAddr)
+	dtlsAgent := effectiveDTLS(s.dtlsOverride, snap.DTLSAddress, snap.DTLSEnabled)
+	dtlsTrap := effectiveDTLS(s.dtlsTrapOverride, snap.DTLSTrapsAddress, snap.DTLSEnabled)
 	probe := observability.Evaluate(s.HealthFacts())
 	warns := make([]Warning, 0, len(probe.Warnings)+4)
 	for _, w := range probe.Warnings {
@@ -111,6 +106,23 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 		}
 		warns = append(warns, w)
 	}
+	listeners := []ListenerStatus{
+		{Name: "agent", Address: displayListen(snmpAddr)},
+		{Name: "traps", Address: displayListen(trapAddr)},
+		{Name: "management", Address: displayListen(mgmtAddr)},
+	}
+	if snap.TCPEnabled {
+		listeners = append(listeners,
+			ListenerStatus{Name: "agent-tcp", Address: displayListen(tcpAgent)},
+			ListenerStatus{Name: "traps-tcp", Address: displayListen(tcpTrap)},
+		)
+	}
+	if snap.DTLSEnabled {
+		listeners = append(listeners,
+			ListenerStatus{Name: "agent-dtls", Address: displayListen(dtlsAgent)},
+			ListenerStatus{Name: "traps-dtls", Address: displayListen(dtlsTrap)},
+		)
+	}
 	return &Status{
 		Ready: probe.Ready,
 		Revisions: RevisionView{
@@ -121,12 +133,8 @@ func (s *App) Status(ctx context.Context, actor Actor) (*Status, error) {
 			Drifted:           snap.Drifted(),
 			LoadedAt:          snap.CompiledAt,
 		},
-		Listeners: []ListenerStatus{
-			{Name: "agent", Address: snmpAddr},
-			{Name: "traps", Address: trapAddr},
-			{Name: "management", Address: mgmtAddr},
-		},
-		HostTime: s.clock.Now().UTC(),
-		Warnings: warns,
+		Listeners: listeners,
+		HostTime:  s.clock.Now().UTC(),
+		Warnings:  warns,
 	}, nil
 }

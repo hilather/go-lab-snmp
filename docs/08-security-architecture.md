@@ -2,8 +2,8 @@
 
 Status: Proposed
 Owners: Security
-Last reviewed: 2026-09-04
-Related ADRs: 0005
+Last reviewed: 2026-09-05
+Related ADRs: 0005, 0016
 
 ## Bearer
 
@@ -42,9 +42,32 @@ field.
 - Trap sink: unauthenticated beyond community/user on the PDU.
   Anyone who can reach 162 can fill the store — admission CIDRs.
 - No trap forward (no amplifier).
+- RFC 3430 TCP is cleartext. DTLS 1.2 is a record layer on IANA
+  10161/10162; inner PDU is still community or USM. TLSTM/TSM is
+  not implemented. RFC 6353 TLS-over-TCP is residual.
+
+## Threat model
+
+| Path | Confidentiality | Integrity | View identity |
+|---|---|---|---|
+| UDP 161/162 v1/v2c | none (community on wire) | none | communityFile bytes |
+| UDP v3 USM | AES-128 if authPriv | HMAC | USM user |
+| TCP 161/162 | **none** (RFC 3430 cleartext) | none beyond USM | same |
+| DTLS + community | DTLS record encryption | DTLS + community still on inner PDU | community, **not** client cert |
+| DTLS + USM | DTLS + optional USM priv | both | USM user |
+
+Enabling DTLS does not encrypt leftover UDP listeners. The “no
+cleartext” recipe is legal: `listeners.agent.enabled: false`,
+`listeners.traps.enabled: false`, `tcp.enabled: false`,
+`dtls.enabled: true` with certs. Serve does not exit 1 solely
+because UDP agent is off. Default overlay still UDP.
+
+Client cert (`clientCAFile`) is transport auth, not a map key.
 
 ## Secrets
 
 Never in GET state, UI, logs at info, or metrics labels. Paths may
-appear. `GET /v1/users` returns `secretFile` paths, never file
-contents. Audit diffs redact `secretFile` / `token` / `cookie` paths.
+appear. Cert/key bytes never appear; `certFile` / `keyFile` /
+`clientCAFile` paths may. `GET /v1/users` returns `secretFile`
+paths, never file contents. Audit diffs redact `secretFile` /
+`token` / `cookie` paths.

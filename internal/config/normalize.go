@@ -50,6 +50,14 @@ func materializeDefaults(sp *model.Spec) {
 	if strings.TrimSpace(sp.Listeners.Traps.Address) == "" {
 		sp.Listeners.Traps.Address = DefaultTrapAddress
 	}
+	if sp.Listeners.DTLS.Enabled {
+		if strings.TrimSpace(sp.Listeners.DTLS.Address) == "" {
+			sp.Listeners.DTLS.Address = DefaultDTLSAddress
+		}
+		if strings.TrimSpace(sp.Listeners.DTLS.TrapsAddress) == "" {
+			sp.Listeners.DTLS.TrapsAddress = DefaultDTLSTrapsAddress
+		}
+	}
 	if strings.TrimSpace(sp.Listeners.Management.RESTPath) == "" {
 		sp.Listeners.Management.RESTPath = DefaultRESTPath
 	}

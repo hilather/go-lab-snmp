@@ -1,0 +1,14 @@
+LabSNMP
+Copyright 2026 The LabSNMP authors
+
+This product includes software developed by third parties:
+
+  github.com/pion/dtls/v3
+  Copyright (c) 2026 The Pion community <https://pion.ly>
+  Licensed under the MIT License.
+
+Transitive modules pulled by that pin include:
+
+  github.com/pion/logging
+  github.com/pion/transport/v4
+  golang.org/x/crypto

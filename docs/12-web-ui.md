@@ -19,7 +19,7 @@ Exactly these routes. There is no send-trap control (ADR 0007).
 | Path | Page |
 |---|---|
 | `/login` | Exchange a bearer for cookie `labsnmp_session` |
-| `/` | Overview: ready, listeners, revisions, store stats |
+| `/` | Overview: ready, listeners (may include agent-tcp / traps-tcp / agent-dtls / traps-dtls), revisions, store stats |
 | `/maps` | Map list |
 | `/maps/:name` | Tree + leaf overlay edit (`POST /v1/maps/{name}/oids:set`) |
 | `/communities` | Communities (wire strings / file contents never shown) |
@@ -31,7 +31,7 @@ Exactly these routes. There is no send-trap control (ADR 0007).
 | `/reset` | Gated Reset (phrase `RESET`, `snmp.admin`) |
 | `/audit` | Audit ring (`snmp.audit.read`) |
 | `/features` | Frozen `features.list` live vs reset-only |
-| `/status` | Ready, listeners, hostTime, revisions |
+| `/status` | Ready, listeners (UDP plus optional TCP/DTLS dt/dd), hostTime, revisions |
 
 `expectedRevision` comes from `GET /v1/state` `runtimeRevision` (camelCase).
 Do not read nested Status revision keys for mutations.
@@ -45,6 +45,13 @@ paths. Neither page renders file contents or community wire strings.
 Features page renders the frozen twelve ids. UI enablement is bootstrap YAML;
 reread with Reset. Not a `features.list` id. Do not add `ui.enabled`, `dtls`,
 or `tcp` ids.
+
+Status and Overview keep the generic `status.listeners` list. `GET /v1/status`
+listeners may include `agent-tcp`, `traps-tcp`, `agent-dtls`, and
+`traps-dtls` when those transports are enabled (address `off` when that
+plane is disabled). When `agent-tcp` or `agent-dtls` is present, Status and
+Overview add explicit Agent TCP / Agent DTLS dt/dd rows. Still no feature
+ids.
 
 Reset rereads bootstrap YAML, drops the SET overlay, wipes traps and queries,
 never writes the file. Phrase `RESET`, checkbox, optional reason. Submit
@@ -137,3 +144,12 @@ CI must be green.
 | Committed dist is a real Vite tree | `TestCommittedDistIsProduction`; `internal/web/dist` has hashed JS; stub sentence absent | pass |
 
 Operator SPA checklist signed off for 1.0.0.
+
+**v1.1 (UI-110).** Status/Overview layout adds optional Agent TCP / Agent
+DTLS dt/dd when those listeners are present. Features still twelve ids.
+No send-trap. No token storage. No new capability IDs.
+
+| Check | Evidence | 1.1 |
+|---|---|---|
+| Status/Overview TCP/DTLS rows when present | Vitest `StatusPage.test.tsx` / `OverviewPage.test.tsx` | pass |
+| Features still twelve ids; no `dtls`/`tcp` ids | `FeaturesPage.test.tsx` | pass |

@@ -11,21 +11,59 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/usm"
 )
 
-func (s *Server) handle(pkt []byte, addr net.Addr) {
-	if s == nil || s.cfg.Store == nil {
+// replySink is one notification's write path (UDP WriteTo, TCP WriteTCP, DTLS Write).
+type replySink interface {
+	Write(p []byte) error
+	RemoteAddr() net.Addr
+}
+
+type udpReply struct {
+	pc   net.PacketConn
+	addr net.Addr
+}
+
+func (u udpReply) Write(p []byte) error {
+	_, err := u.pc.WriteTo(p, u.addr)
+	return err
+}
+
+func (u udpReply) RemoteAddr() net.Addr { return u.addr }
+
+type streamReply struct {
+	conn net.Conn
+	tcp  bool
+}
+
+func (r streamReply) Write(p []byte) error {
+	if r.conn == nil {
+		return net.ErrClosed
+	}
+	if r.tcp {
+		return snmpwire.WriteTCP(r.conn, p)
+	}
+	_, err := r.conn.Write(p)
+	return err
+}
+
+func (r streamReply) RemoteAddr() net.Addr {
+	if r.conn == nil {
+		return nil
+	}
+	return r.conn.RemoteAddr()
+}
+
+func (s *Server) handle(sink replySink, pkt []byte) {
+	if s == nil || s.cfg.Store == nil || sink == nil {
 		return
 	}
 	s.syncAdmission()
-	pc := s.conn()
-	if pc == nil {
-		return
-	}
 	if int64(len(pkt)) > s.maxMessageBytes() {
 		s.Dropped.Add(1)
 		s.observeTrap("", "oversize")
 		return
 	}
 
+	addr := sink.RemoteAddr()
 	ip := peerAddr(addr)
 	if !s.allowed(ip) {
 		s.Allowlist.Add(1)
@@ -59,20 +97,20 @@ func (s *Server) handle(pkt []byte, addr net.Addr) {
 
 	switch msg.Version {
 	case snmpwire.VersionV1, snmpwire.VersionV2c:
-		s.handleCommunity(pc, addr, pkt, msg)
+		s.handleCommunity(sink, pkt, msg)
 	case snmpwire.VersionV3:
-		s.handleV3(pc, addr, pkt, msg)
+		s.handleV3(sink, pkt, msg)
 	default:
 		s.Dropped.Add(1)
 		s.observeTrap(ver, "drop")
 	}
 }
 
-func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
+func (s *Server) handleCommunity(sink replySink, raw []byte, msg snmpwire.Message) {
 	ver := versionLabel(msg.Version)
 	c := s.lookupCommunity(msg.Community)
 	if c == nil {
-		s.authFail(raw, addr, msg)
+		s.authFail(raw, sink.RemoteAddr(), msg)
 		return
 	}
 	if !communityVersionOK(c, versionLabel(msg.Version)) {
@@ -86,24 +124,24 @@ func (s *Server) handleCommunity(pc net.PacketConn, addr net.Addr, raw []byte, m
 		s.observeTrap(ver, "drop")
 		return
 	}
-	s.storeAndAck(pc, addr, raw, msg, c.Name, "", "")
+	s.storeAndAck(sink, raw, msg, c.Name, "", "")
 }
 
-func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message) {
+func (s *Server) handleV3(sink replySink, raw []byte, msg snmpwire.Message) {
 	if s.engine() == nil {
-		s.authFail(raw, addr, msg)
+		s.authFail(raw, sink.RemoteAddr(), msg)
 		return
 	}
 	in, report, discovery := s.openV3(raw, msg)
 	if len(report) > 0 {
 		if !discovery {
-			s.authFail(raw, addr, msg)
+			s.authFail(raw, sink.RemoteAddr(), msg)
 		}
-		ack(pc, addr, report)
+		ack(sink, report)
 		return
 	}
 	if in == nil {
-		s.authFail(raw, addr, msg)
+		s.authFail(raw, sink.RemoteAddr(), msg)
 		return
 	}
 	req := in.Message.RequestPDU()
@@ -111,7 +149,7 @@ func (s *Server) handleV3(pc net.PacketConn, addr net.Addr, raw []byte, msg snmp
 		s.Dropped.Add(1)
 		return
 	}
-	s.storeAndAck(pc, addr, raw, in.Message, "", in.User.Name, "")
+	s.storeAndAck(sink, raw, in.Message, "", in.User.Name, "")
 }
 
 func (s *Server) openV3(raw []byte, msg snmpwire.Message) (in *usm.Incoming, report []byte, discovery bool) {
@@ -143,15 +181,15 @@ func (s *Server) authFail(raw []byte, addr net.Addr, msg snmpwire.Message) {
 	s.storeUnauthTrap(raw, addr, msg, unauthWarning(msg))
 }
 
-func (s *Server) storeAndAck(pc net.PacketConn, addr net.Addr, raw []byte, msg snmpwire.Message, community, user, warning string) {
-	if !s.storePDU(raw, addr, msg, community, user, warning) {
+func (s *Server) storeAndAck(sink replySink, raw []byte, msg snmpwire.Message, community, user, warning string) {
+	if !s.storePDU(raw, sink.RemoteAddr(), msg, community, user, warning) {
 		return
 	}
 	req := msg.RequestPDU()
 	if req == nil || req.Type != snmpwire.PDUInform {
 		return
 	}
-	s.ackInform(pc, addr, msg, *req)
+	s.ackInform(sink, msg, *req)
 }
 
 func (s *Server) storeUnauthTrap(raw []byte, addr net.Addr, msg snmpwire.Message, warning string) {
@@ -207,7 +245,7 @@ func (s *Server) storeBestEffort(raw []byte, addr net.Addr, warning string) {
 	s.observeTrap(rec.Version, "ok")
 }
 
-func (s *Server) ackInform(pc net.PacketConn, addr net.Addr, msg snmpwire.Message, req snmpwire.PDU) {
+func (s *Server) ackInform(sink replySink, msg snmpwire.Message, req snmpwire.PDU) {
 	resp := snmpwire.PDU{
 		Type:      snmpwire.PDUResponse,
 		RequestID: req.RequestID,
@@ -238,17 +276,16 @@ func (s *Server) ackInform(pc net.PacketConn, addr net.Addr, msg snmpwire.Messag
 	if err != nil || len(out) == 0 {
 		return
 	}
-	ack(pc, addr, out)
 	s.InformAck.Add(1)
+	ack(sink, out)
 }
 
-// ack is the INFORM (and v3 Report) reply path. WriteTo on the trap
-// socket; never Dial.
-func ack(pc net.PacketConn, addr net.Addr, payload []byte) {
-	if pc == nil || addr == nil || len(payload) == 0 {
+// ack is shared by INFORM and v3 Report.
+func ack(sink replySink, payload []byte) {
+	if sink == nil || len(payload) == 0 {
 		return
 	}
-	_, _ = pc.WriteTo(payload, addr)
+	_ = sink.Write(payload)
 }
 
 func (s *Server) lookupCommunity(wire []byte) *Community {

@@ -45,7 +45,20 @@ func copyFull(t *testing.T) string {
 
 func mustBoot(t *testing.T) (*App, *snapshot.Snapshot) {
 	t.Helper()
-	path := copyFull(t)
+	return mustBootNamed(t, "full.yaml")
+}
+
+func mustBootNamed(t *testing.T, name string) (*App, *snapshot.Snapshot) {
+	t.Helper()
+	t.Chdir(repoRoot(t))
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "labsnmp.yaml")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	svc, err := Boot(context.Background(), Options{BootstrapPath: path})
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +69,20 @@ func mustBoot(t *testing.T) (*App, *snapshot.Snapshot) {
 		t.Fatal("no snapshot")
 	}
 	return svc, snap
+}
+
+func copyNamed(t *testing.T, name string) string {
+	t.Helper()
+	t.Chdir(repoRoot(t))
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "testdata", "config", "valid", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "labsnmp.yaml")
+	if err := os.WriteFile(path, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func actor() Actor {

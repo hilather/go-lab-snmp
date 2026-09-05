@@ -20,6 +20,7 @@ spec:
     traps:
       enabled: true
       address: ":162" # container; host map is LABSNMP_TRAP_PORT (default 10162)
+    # v1.1 can enable TCP/DTLS with file-ref certs; this overlay does not.
     dtls:
       enabled: false
     tcp:

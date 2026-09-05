@@ -291,3 +291,95 @@ func TestForbiddenExecBasenames(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPionImportFence(t *testing.T) {
+	root := moduleRoot(t)
+	fset := token.NewFileSet()
+	allowed := map[string]bool{
+		"internal/snmpagent": true,
+		"internal/snmpsink":  true,
+	}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "testdata", "vendor", "node_modules", "dist", "go-lab-snmp-design-pack":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		pkg := filepath.ToSlash(filepath.Dir(rel))
+		for _, imp := range f.Imports {
+			ipath := strings.Trim(imp.Path.Value, `"`)
+			if ipath != "github.com/pion/dtls/v3" && !strings.HasPrefix(ipath, "github.com/pion/dtls/v3/") {
+				continue
+			}
+			if !allowed[pkg] {
+				t.Errorf("%s imports pion/dtls (only snmpagent/snmpsink may)", rel)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNoDeprecatedDTLSAPI(t *testing.T) {
+	root := moduleRoot(t)
+	fset := token.NewFileSet()
+	for _, rel := range []string{"internal/snmpagent", "internal/snmpsink"} {
+		dir := requirePackageDir(t, root, rel)
+		if dir == "" {
+			continue
+		}
+		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if d.Name() == "testdata" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			fileRel, _ := filepath.Rel(root, path)
+			ast.Inspect(f, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok || sel.Sel == nil {
+					return true
+				}
+				id, ok := sel.X.(*ast.Ident)
+				if !ok || id.Name != "dtls" {
+					return true
+				}
+				switch sel.Sel.Name {
+				case "Dial", "DialWithOptions", "Listen", "Config", "InsecureSkipVerifyHello":
+					t.Errorf("%s references deprecated or outbound dtls.%s", fileRel, sel.Sel.Name)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

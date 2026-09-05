@@ -31,10 +31,23 @@ haveIP:
 	t.Fatal("ForbiddenLabels must include community")
 }
 
+func TestPDUsTotalNoTransportLabel(t *testing.T) {
+	def, ok := LookupMetric(MetricPDUsTotal)
+	if !ok {
+		t.Fatal("pdus_total")
+	}
+	for _, l := range def.Labels {
+		if l == "transport" {
+			t.Fatal("do not add a transport label to labsnmp_pdus_total")
+		}
+	}
+}
+
 func TestCatalogSeriesNames(t *testing.T) {
 	want := []string{
 		MetricPDUsTotal, MetricTrapsTotal, MetricStoreMessages, MetricStoreBytes,
 		MetricApplyTotal, MetricHTTPRequestsTotal, MetricBuildInfo, MetricAuthFailTotal,
+		MetricListenersBound,
 	}
 	have := map[string]bool{}
 	for _, m := range Metrics() {
@@ -94,34 +107,86 @@ func TestForbiddenLabelsDropped(t *testing.T) {
 	}
 }
 
+func transportOff() Facts {
+	return Facts{TCPOff: true, TrapTCPOff: true, DTLSOff: true, TrapDTLSOff: true}
+}
+
+func withOff(f Facts) Facts {
+	off := transportOff()
+	if !f.TCPBound {
+		f.TCPOff = off.TCPOff
+	}
+	if !f.TrapTCPBound {
+		f.TrapTCPOff = off.TrapTCPOff
+	}
+	if !f.DTLSBound {
+		f.DTLSOff = off.DTLSOff
+	}
+	if !f.TrapDTLSBound {
+		f.TrapDTLSOff = off.TrapDTLSOff
+	}
+	return f
+}
+
 func TestEvaluateReady(t *testing.T) {
-	p := Evaluate(Facts{AgentBound: true, TrapOff: true, SnapshotUp: true, MgmtOff: true})
+	p := Evaluate(withOff(Facts{AgentBound: true, TrapOff: true, SnapshotUp: true, MgmtOff: true}))
 	if !p.Live || !p.Ready {
 		t.Fatalf("%+v", p)
 	}
-	p = Evaluate(Facts{AgentBound: true, TrapOff: true, SnapshotUp: true})
+	p = Evaluate(withOff(Facts{AgentBound: true, TrapOff: true, SnapshotUp: true}))
 	if p.Ready {
 		t.Fatal("mgmt unbound should not be ready")
 	}
-	p = Evaluate(Facts{AgentBound: true, SnapshotUp: true, MgmtOff: true})
+	p = Evaluate(withOff(Facts{AgentBound: true, SnapshotUp: true, MgmtOff: true}))
 	if p.Ready {
 		t.Fatal("trap unbound should not be ready after TRAP-001")
 	}
-	p = Evaluate(Facts{AgentBound: true, TrapBound: true, SnapshotUp: true, MgmtBound: true})
+	p = Evaluate(withOff(Facts{AgentBound: true, TrapBound: true, SnapshotUp: true, MgmtBound: true}))
 	if !p.Ready {
 		t.Fatalf("%+v", p)
 	}
-	p = Evaluate(Facts{AgentOff: true, TrapOff: true, SnapshotUp: true, MgmtOff: true})
+	p = Evaluate(withOff(Facts{AgentOff: true, TrapOff: true, SnapshotUp: true, MgmtOff: true}))
 	if !p.Ready {
 		t.Fatal("disabled listeners are ready")
 	}
-	p = Evaluate(Facts{AgentBound: true, TrapOff: true, MgmtOff: true})
+	p = Evaluate(withOff(Facts{AgentBound: true, TrapOff: true, MgmtOff: true}))
 	if p.Ready {
 		t.Fatal("missing snapshot")
 	}
 	p = Evaluate(Facts{SnapshotUp: true})
 	if p.Ready {
 		t.Fatal("fail-closed without listener facts")
+	}
+}
+
+func TestEvaluateTCPDTLS(t *testing.T) {
+	base := Facts{AgentBound: true, TrapOff: true, SnapshotUp: true, MgmtOff: true, TrapTCPOff: true, DTLSOff: true, TrapDTLSOff: true}
+	p := Evaluate(base)
+	if p.Ready {
+		t.Fatal("zero-value TCPOff with TCP enabled must not be Ready")
+	}
+	foundTCP := false
+	for _, w := range p.Warnings {
+		if w.Code == "tcp_unbound" || w.Code == "dtls_unbound" {
+			t.Fatalf("do not invent %s", w.Code)
+		}
+		if w.Code == WarnAgentUnbound && strings.Contains(w.Message, "TCP") {
+			foundTCP = true
+		}
+	}
+	if !foundTCP {
+		t.Fatalf("want agent_unbound TCP message: %+v", p.Warnings)
+	}
+	base.TCPBound = true
+	p = Evaluate(base)
+	if !p.Ready {
+		t.Fatalf("tcp bound: %+v", p)
+	}
+	dtls := withOff(Facts{AgentBound: true, TrapOff: true, SnapshotUp: true, MgmtOff: true})
+	dtls.DTLSOff = false
+	p = Evaluate(dtls)
+	if p.Ready {
+		t.Fatal("dtls enabled unbound must not be Ready")
 	}
 }
 

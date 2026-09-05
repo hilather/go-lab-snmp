@@ -2,6 +2,7 @@ package snmpsink
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -60,6 +61,35 @@ func TestInformWriteToSource(t *testing.T) {
 	if rec.PDUType != "inform" || rec.Community != "public" {
 		t.Fatalf("%+v", rec)
 	}
+}
+
+func TestInformAckCountedBeforeWriteTo(t *testing.T) {
+	s := startSink(t, Config{})
+	wrapPacketConn(t, s, func(pc net.PacketConn) net.PacketConn {
+		return &orderPC{PacketConn: pc, acks: &s.InformAck, t: t}
+	})
+	req := snmptest.MustEncodeInform(t, "public", 16, coldStart())
+	m := snmptest.MustExchange(t, dst(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 16 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+	if s.InformAck.Load() < 1 {
+		t.Fatal("InformAck")
+	}
+}
+
+type orderPC struct {
+	net.PacketConn
+	acks *atomic.Int64
+	t    *testing.T
+}
+
+func (o *orderPC) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if o.acks.Load() < 1 {
+		o.t.Error("InformAck must increment before WriteTo")
+	}
+	return o.PacketConn.WriteTo(p, addr)
 }
 
 func TestInformWriteToListenPacket(t *testing.T) {
@@ -362,4 +392,136 @@ func TestListenPacketUDP(t *testing.T) {
 	if s.Addr() == nil {
 		t.Fatal("bound addr")
 	}
+}
+
+func TestRebindMovesPacketConn(t *testing.T) {
+	s := startSink(t, Config{})
+	old := s.Addr().String()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := pc.LocalAddr().String()
+	_ = pc.Close()
+	if err := s.Rebind(next); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Addr().String(); got != next {
+		t.Fatalf("addr %s want %s", got, next)
+	}
+	req := snmptest.MustEncodeInform(t, "public", 21, coldStart())
+	m := snmptest.MustExchange(t, next, req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse {
+		t.Fatalf("INFORM after rebind %+v", p)
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("old PacketConn must be closed: %v", err)
+	}
+	_ = hold.Close()
+}
+
+func TestRebindEmptyUnbinds(t *testing.T) {
+	s := startSink(t, Config{})
+	old := s.Addr().String()
+	if err := s.Rebind(""); err != nil {
+		t.Fatal(err)
+	}
+	if s.Bound() {
+		t.Fatal("empty addr must unbind")
+	}
+	hold, err := net.ListenPacket("udp", old)
+	if err != nil {
+		t.Fatalf("unbound address must be free: %v", err)
+	}
+	_ = hold.Close()
+}
+
+func TestInformTCPResponse(t *testing.T) {
+	s := startTCPSink(t, Config{})
+	req := snmptest.MustEncodeInform(t, "public", 15, coldStart())
+	m := tcpExchange(t, dstTCP(s), req, 2*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 15 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+	if s.InformAck.Load() < 1 {
+		t.Fatal("InformAck")
+	}
+	rec := waitOne(t, s)
+	if rec.PDUType != "inform" || rec.Community != "public" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestTrapV2TCPStored(t *testing.T) {
+	s := startTCPSink(t, Config{})
+	req := snmptest.MustEncodeTrapV2(t, "public", 14, coldStart())
+	tcpSend(t, dstTCP(s), req, 2*time.Second)
+	rec := waitOne(t, s)
+	if rec.PDUType != "trapv2" || rec.Community != "public" || rec.NotificationOID != coldStart().String() {
+		t.Fatalf("%+v", rec)
+	}
+	if s.InformAck.Load() != 0 {
+		t.Fatal("TRAPv2 must not ack")
+	}
+}
+
+func TestV3ReportTCPSameAck(t *testing.T) {
+	eng := aliceEngine(t)
+	s := startTCPSink(t, Config{Engine: eng})
+	disc := snmpwire.Message{
+		Version:          snmpwire.VersionV3,
+		MsgID:            1,
+		MsgMaxSize:       65507,
+		MsgFlags:         snmpwire.FlagReportable,
+		MsgSecurityModel: snmpwire.SecurityModelUSM,
+		USM:              snmpwire.USMParameters{UserName: []byte("alice")},
+		ScopedPDU: &snmpwire.ScopedPDU{
+			PDU: snmpwire.PDU{
+				Type:      snmpwire.PDUInform,
+				RequestID: 1,
+				VarBinds:  snmptest.TrapV2PDU(1, coldStart()).VarBinds,
+			},
+		},
+	}
+	raw, err := snmpwire.Encode(disc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := tcpExchange(t, dstTCP(s), raw, 2*time.Second)
+	if p := rep.RequestPDU(); p == nil || p.Type != snmpwire.PDUReport {
+		t.Fatalf("discovery: %+v", p)
+	}
+	if s.Store().Stats().Messages != 0 {
+		t.Fatal("discovery Report must not store")
+	}
+}
+
+func TestInformDTLSResponse(t *testing.T) {
+	s := startDTLSSink(t, Config{})
+	req := snmptest.MustEncodeInform(t, "public", 17, coldStart())
+	m := dtlsExchange(t, dstDTLS(s), req, 3*time.Second)
+	p := m.RequestPDU()
+	if p == nil || p.Type != snmpwire.PDUResponse || p.RequestID != 17 {
+		t.Fatalf("INFORM ack %+v", p)
+	}
+	if s.InformAck.Load() < 1 {
+		t.Fatal("InformAck")
+	}
+	rec := waitOne(t, s)
+	if rec.PDUType != "inform" || rec.Community != "public" {
+		t.Fatalf("%+v", rec)
+	}
+}
+
+func TestListenDTLSUsesPassedCredsNotSnapshot(t *testing.T) {
+	t.Chdir(repoRoot(t))
+	s := newUnstarted(t, Config{})
+	ln, err := s.ListenDTLS("127.0.0.1:0", "testdata/certs/lab.pem", "testdata/certs/lab-key.pem", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ln.Close()
 }

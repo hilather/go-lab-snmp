@@ -43,6 +43,17 @@ type Snapshot struct {
 	AgentEnabled      bool
 	TrapsEnabled      bool
 
+	TCPEnabled      bool
+	TCPAddress      string
+	TCPTrapsAddress string
+
+	DTLSEnabled      bool
+	DTLSAddress      string
+	DTLSTrapsAddress string
+	DTLSCertFile     string
+	DTLSKeyFile      string
+	DTLSClientCAFile string
+
 	Maps        map[string]*mibtree.Tree
 	Communities map[string]*Community // keyed by wire community string
 	Engine      *usm.Engine

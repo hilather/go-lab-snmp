@@ -33,7 +33,7 @@ services:
           note: bearer only; gateway interpolates LABSNMP_TOKEN
       parameters:
         auth: "none on the v1/v2c data plane (community strings are wire handles from communityFile); v3 user alice is authPriv SHA-256/AES-128. The bearer token is only for the REST/MCP management plane"
-        tls: "not in 1.0 (spec.listeners.dtls.enabled / tcp.enabled reject true)"
+        tls: "DTLS record layer on IANA 10161/10162; inner PDU is community or USM; TLSTM/TSM not implemented. RFC 6353 TLS-over-TCP residual"
         maps: "public-if (SNMPv2-MIB system + ifTable) and private-if (distinct enterprise leaves). Community public cannot see private-only OIDs"
         versions: "v1, v2c, v3 USM"
         dest_port: "host publish default ${LABSNMP_AGENT_PORT}/${LABSNMP_TRAP_PORT}/${LABSNMP_REST_PORT} (10161/10162/18161). Privileged 161/162 is a profile opt-in when snmpd/snmptrapd are gone"

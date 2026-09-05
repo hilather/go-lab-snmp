@@ -35,6 +35,8 @@ type serveFlags struct {
 	Config           string
 	SNMPListen       string
 	TrapListen       string
+	DTLSListen       string
+	DTLSTrapListen   string
 	ManagementListen string
 	ShutdownTimeout  time.Duration
 	PIDFile          string
@@ -46,6 +48,8 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 	path := fs.String("config", "", "path to bootstrap YAML or JSON")
 	snmpListen := fs.String("snmp-listen", "", "override agent listen address (empty uses YAML)")
 	trapListen := fs.String("trap-listen", "", "override trap listen address (empty uses YAML; off disables)")
+	dtlsListen := fs.String("dtls-listen", "", "override agent DTLS listen address (empty uses YAML; off disables)")
+	dtlsTrapListen := fs.String("dtls-trap-listen", "", "override trap DTLS listen address (empty uses YAML; off disables)")
 	mgmtListen := fs.String("management-listen", "off", "management listen; off/none/- leaves it unbound")
 	shutdown := fs.Duration("shutdown-timeout", defaultShutdownTimeout, "graceful shutdown deadline")
 	pidFile := fs.String("pid-file", "", "write process id after listeners bind")
@@ -60,6 +64,8 @@ func parseServeFlags(args []string, stderr io.Writer) (serveFlags, error) {
 		Config:           *path,
 		SNMPListen:       *snmpListen,
 		TrapListen:       *trapListen,
+		DTLSListen:       *dtlsListen,
+		DTLSTrapListen:   *dtlsTrapListen,
 		ManagementListen: *mgmtListen,
 		ShutdownTimeout:  *shutdown,
 		PIDFile:          *pidFile,
@@ -81,21 +87,87 @@ func listenAddress(s string) bool {
 }
 
 func resolveTrapListen(flag string, st *model.State) (addr string, enabled bool) {
+	yamlAddr, on := "", false
+	if st != nil {
+		yamlAddr, on = st.Spec.Listeners.Traps.Address, st.Spec.Listeners.Traps.Enabled
+		if yamlAddr == "" && on {
+			yamlAddr = config.DefaultTrapAddress
+		}
+	}
+	addr = resolveUDP(flag, yamlAddr, on)
+	return addr, addr != ""
+}
+
+func resolveUDP(flag, yamlAddr string, enabled bool) string {
 	switch {
 	case listenOff(flag):
-		return "", false
+		return ""
 	case listenAddress(flag):
-		return strings.TrimSpace(flag), true
+		return strings.TrimSpace(flag)
+	case !enabled:
+		return ""
 	default:
-		if st == nil || !st.Spec.Listeners.Traps.Enabled {
-			return "", false
-		}
-		addr = st.Spec.Listeners.Traps.Address
-		if addr == "" {
-			addr = config.DefaultTrapAddress
-		}
-		return addr, true
+		return yamlAddr
 	}
+}
+
+func resolveTCP(tcpEnabled bool, tcpAddr, udpEffective string) string {
+	if !tcpEnabled {
+		return ""
+	}
+	if addr := strings.TrimSpace(tcpAddr); addr != "" {
+		return addr
+	}
+	return udpEffective
+}
+
+func resolveDTLSCreds(snap *snapshot.Snapshot, baseDir string) (cert, key, ca string) {
+	if snap == nil || !snap.DTLSEnabled {
+		return "", "", ""
+	}
+	return resolveMaybe(snap.DTLSCertFile, baseDir), resolveMaybe(snap.DTLSKeyFile, baseDir), resolveMaybe(snap.DTLSClientCAFile, baseDir)
+}
+
+func resolveMaybe(path, baseDir string) string {
+	if path == "" {
+		return ""
+	}
+	resolved, err := config.ResolveFileRef(path, baseDir)
+	if err != nil {
+		return path
+	}
+	return resolved
+}
+
+func desiredListeners(flags serveFlags, snap *snapshot.Snapshot, baseDir string) app.DesiredListeners {
+	var agentAddr, trapAddr string
+	agentOn, trapOn := false, false
+	tcpOn, tcpAddr, tcpTrapAddr := false, "", ""
+	dtlsOn, dtlsAddr, dtlsTrapAddr := false, "", ""
+	if snap != nil {
+		agentAddr, agentOn = snap.AgentAddress, snap.AgentEnabled
+		trapAddr, trapOn = snap.TrapAddress, snap.TrapsEnabled
+		tcpOn, tcpAddr, tcpTrapAddr = snap.TCPEnabled, snap.TCPAddress, snap.TCPTrapsAddress
+		dtlsOn, dtlsAddr, dtlsTrapAddr = snap.DTLSEnabled, snap.DTLSAddress, snap.DTLSTrapsAddress
+	}
+	agentUDP := resolveUDP(flags.SNMPListen, agentAddr, agentOn)
+	trapUDP := resolveUDP(flags.TrapListen, trapAddr, trapOn)
+	cert, key, ca := resolveDTLSCreds(snap, baseDir)
+	return app.DesiredListeners{
+		AgentUDP:         agentUDP,
+		TrapUDP:          trapUDP,
+		AgentTCP:         resolveTCP(tcpOn, tcpAddr, agentUDP),
+		TrapTCP:          resolveTCP(tcpOn, tcpTrapAddr, trapUDP),
+		AgentDTLS:        resolveUDP(flags.DTLSListen, dtlsAddr, dtlsOn),
+		TrapDTLS:         resolveUDP(flags.DTLSTrapListen, dtlsTrapAddr, dtlsOn),
+		DTLSCertFile:     cert,
+		DTLSKeyFile:      key,
+		DTLSClientCAFile: ca,
+	}
+}
+
+func agentPlane(d app.DesiredListeners) bool {
+	return d.AgentUDP != "" || d.AgentTCP != "" || d.AgentDTLS != ""
 }
 
 func serveCmd(args []string, stdout, stderr io.Writer) int {
@@ -118,12 +190,14 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 	logger := observability.NewLogger(stderr, observability.LevelInfo)
 	logger.SetRegistry(metrics)
 	svc, err := app.Boot(ctx, app.Options{
-		BootstrapPath:      flags.Config,
-		SNMPListenOverride: flags.SNMPListen,
-		TrapListenOverride: flags.TrapListen,
-		MgmtListenOverride: flags.ManagementListen,
-		Metrics:            metrics,
-		Logger:             logger,
+		BootstrapPath:          flags.Config,
+		SNMPListenOverride:     flags.SNMPListen,
+		TrapListenOverride:     flags.TrapListen,
+		MgmtListenOverride:     flags.ManagementListen,
+		DTLSListenOverride:     flags.DTLSListen,
+		DTLSTrapListenOverride: flags.DTLSTrapListen,
+		Metrics:                metrics,
+		Logger:                 logger,
 	})
 	if err != nil {
 		printDomainError(stderr, "labsnmp serve", err)
@@ -144,74 +218,67 @@ func serveWithContext(ctx context.Context, args []string, stdout, stderr io.Writ
 		svc.SetLogger(logger)
 	}
 
-	addr := strings.TrimSpace(flags.SNMPListen)
-	switch {
-	case listenOff(addr):
-		_, _ = fmt.Fprintln(stderr, "labsnmp serve: agent listener is disabled")
+	desired := desiredListeners(flags, snap, filepath.Dir(flags.Config))
+	if !agentPlane(desired) {
+		_, _ = fmt.Fprintln(stderr, "labsnmp serve: no agent-plane listener will bind")
 		return 1
-	case addr == "":
-		if !st.Spec.Listeners.Agent.Enabled {
-			_, _ = fmt.Fprintln(stderr, "labsnmp serve: agent listener is disabled")
-			return 1
-		}
-		addr = st.Spec.Listeners.Agent.Address
-		if addr == "" {
-			addr = config.DefaultAgentAddress
-		}
 	}
 
 	srv, err := snmpagent.New(snmpagent.Config{
-		Addr:    addr,
+		Addr:    desired.AgentUDP,
 		Store:   svc.Snapshots(),
 		Overlay: svc.Overlay(),
 		Queries: svc.Queries(),
 		Clock:   snap.Clock,
 		Metrics: metrics,
 		Logger:  logger,
+		BaseDir: filepath.Dir(flags.Config),
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
 		return 1
 	}
-	if err := srv.Start(); err != nil {
+
+	sink, err := newTrapSink(desired.TrapUDP, svc.Snapshots(), snap, svc.Traps(), metrics, logger, filepath.Dir(flags.Config))
+	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+		shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = srv.Shutdown(shctx)
+		cancel()
 		return 1
 	}
-	_, _ = fmt.Fprintf(stdout, "labsnmp snmp listen=%s\n", srv.Addr().String())
-
-	var sink *snmpsink.Server
-	trapAddr, trapOn := resolveTrapListen(flags.TrapListen, st)
-	if trapOn {
-		sink, err = newTrapSink(trapAddr, svc.Snapshots(), snap, svc.Traps(), metrics, logger)
-		if err != nil {
-			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
-			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = srv.Shutdown(shctx)
-			cancel()
-			return 1
-		}
-		if err := sink.Start(); err != nil {
-			_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
-			shctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			_ = srv.Shutdown(shctx)
-			cancel()
-			return 1
-		}
-		_, _ = fmt.Fprintf(stdout, "labsnmp trap listen=%s\n", sink.Addr().String())
-	} else {
-		_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
+	dp := &dataPlane{agent: srv, sink: sink}
+	if err := dp.Sync(desired); err != nil {
+		_, _ = fmt.Fprintf(stderr, "labsnmp serve: %v\n", err)
+		shctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		_ = sink.Shutdown(shctx)
+		_ = srv.Shutdown(shctx)
+		cancel()
+		return 1
 	}
+	svc.SetDataPlaneSync(dp.Sync)
+	printDataPlaneListen(stdout, srv, sink)
 
 	var restSrv *rest.Server
 	var mcpSrv *mcp.Server
 	mgmtOff := !listenAddress(flags.ManagementListen)
 	svc.SetHealth(func() observability.Facts {
+		want := dp.last()
 		return observability.Facts{
-			AgentBound: srv.Bound(),
-			TrapBound:  sink != nil && sink.Bound(),
-			TrapOff:    !trapOn,
-			MgmtBound:  restSrv != nil && restSrv.Bound(),
-			MgmtOff:    mgmtOff,
+			AgentBound:    srv.Bound(),
+			AgentOff:      want.AgentUDP == "",
+			TrapBound:     sink != nil && sink.Bound(),
+			TrapOff:       want.TrapUDP == "",
+			TCPBound:      srv.BoundTCP(),
+			TCPOff:        want.AgentTCP == "",
+			TrapTCPBound:  sink != nil && sink.BoundTCP(),
+			TrapTCPOff:    want.TrapTCP == "",
+			DTLSBound:     srv.BoundDTLS(),
+			DTLSOff:       want.AgentDTLS == "",
+			TrapDTLSBound: sink != nil && sink.BoundDTLS(),
+			TrapDTLSOff:   want.TrapDTLS == "",
+			MgmtBound:     restSrv != nil && restSrv.Bound(),
+			MgmtOff:       mgmtOff,
 		}
 	})
 	syncObs := func() {
@@ -380,7 +447,44 @@ func serveUIEnabled(svc *app.App) func() bool {
 	}
 }
 
-func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger) (*snmpsink.Server, error) {
+func printDataPlaneListen(stdout io.Writer, srv *snmpagent.Server, sink *snmpsink.Server) {
+	if srv != nil && srv.Bound() {
+		if a := srv.Addr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp snmp listen=%s\n", a.String())
+		}
+	} else if srv == nil || (!srv.BoundTCP() && !srv.BoundDTLS()) {
+		_, _ = fmt.Fprintln(stdout, "labsnmp snmp: not bound")
+	}
+	if srv != nil && srv.BoundTCP() {
+		if a := srv.TCPAddr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp snmp tcp listen=%s\n", a.String())
+		}
+	}
+	if srv != nil && srv.BoundDTLS() {
+		if a := srv.DTLSAddr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp snmp dtls listen=%s\n", a.String())
+		}
+	}
+	if sink != nil && sink.Bound() {
+		if a := sink.Addr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp trap listen=%s\n", a.String())
+		}
+	} else if sink == nil || (!sink.BoundTCP() && !sink.BoundDTLS()) {
+		_, _ = fmt.Fprintln(stdout, "labsnmp trap: not bound")
+	}
+	if sink != nil && sink.BoundTCP() {
+		if a := sink.TCPAddr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp trap tcp listen=%s\n", a.String())
+		}
+	}
+	if sink != nil && sink.BoundDTLS() {
+		if a := sink.DTLSAddr(); a != nil {
+			_, _ = fmt.Fprintf(stdout, "labsnmp trap dtls listen=%s\n", a.String())
+		}
+	}
+}
+
+func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ring *store.TrapRing, metrics *observability.Registry, logger *observability.Logger, baseDir string) (*snmpsink.Server, error) {
 	if ring == nil {
 		ring = store.NewTrapRing(store.TrapPolicy{
 			MaxMessages: snap.Canonical.Spec.Traps.MaxMessages,
@@ -421,6 +525,7 @@ func newTrapSink(addr string, snaps *snapshot.Store, snap *snapshot.Snapshot, ri
 		Clock:                 sinkClock{snap.Clock},
 		Metrics:               metrics,
 		Logger:                logger,
+		BaseDir:               baseDir,
 	})
 }
 

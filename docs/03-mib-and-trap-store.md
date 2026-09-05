@@ -63,9 +63,9 @@ again. `storeGeneration` increments.
 
 ## Trap store
 
-LabMail-shaped ring (`internal/store.TrapRing`), filled by the UDP/162
+LabMail-shaped ring (`internal/store.TrapRing`), filled by the
 receive-only sink (`internal/snmpsink`). INFORM is stored then
-acknowledged with `WriteTo` on the trap socket (never Dial).
+acknowledged with `WriteTo` / `WriteTCP` / `Write` (never Dial).
 
 - id ULID (`oklog/ulid/v2`)
 - receivedAt

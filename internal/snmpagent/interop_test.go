@@ -85,3 +85,19 @@ func TestNetSNMPGetWalkSet(t *testing.T) {
 		t.Fatalf("after set:\n%s", out)
 	}
 }
+
+func TestNetSNMPGetTCP(t *testing.T) {
+	if _, err := exec.LookPath("snmpget"); err != nil {
+		t.Skip("snmpget not installed")
+	}
+	s := startTCPAgent(t, loadYAML(t, rwYAML, nil))
+	host := dstTCP(s)
+	sysDescrOID := snmpwire.OID{1, 3, 6, 1, 2, 1, 1, 1, 0}.String()
+	out, err := exec.Command("snmpget", "-On", "-v2c", "-c", "public", "-t", "1", "-r", "0", "tcp:"+host, sysDescrOID).CombinedOutput()
+	if err != nil {
+		t.Fatalf("snmpget tcp: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "descr") {
+		t.Fatalf("%s", out)
+	}
+}
