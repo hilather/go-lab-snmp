@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Configuration
-Last reviewed: 2026-09-05
+Last reviewed: 2026-10-07
 
 Desired state is one YAML document. SET overlay and traps are not
 desired state. The process never writes the bootstrap file.
@@ -169,6 +169,10 @@ never. SET overlay does not change revision. `storeGeneration` does.
 
 Apply requires `expectedRevision` + `Idempotency-Key`.
 Mismatch returns `revision_mismatch` with `currentRevision`.
+A reused key whose `expectedRevision` differs from the cached request
+is `idempotency_conflict`. The same key, operations, reason, and
+`expectedRevision` replay the cached apply. A new key with the wrong
+revision is still `revision_mismatch`.
 
 `oids:set` body is a single `{oid, value}`. It writes the same SET overlay
 as SNMP SET and is not an apply verb. Overlay does not change revision;
@@ -177,4 +181,15 @@ as SNMP SET and is not an apply verb. Overlay does not change revision;
 Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
 rebind UDP agent and trap sockets (bind-new-first; empty address stops
 that listener), swap snapshot, increment `storeGeneration`. Never writes
-the file. CLI listen flags still win after Reset.
+the file. CLI listen flags still win after Reset. Trap policy is applied
+before that ephemeral wipe. If a later step fails after the data-plane
+sync has swapped sockets, or trap policy fails, Reset syncs the previous
+listeners again and rebinds management when that bind already succeeded.
+The active snapshot, overlay, traps, and query ring stay unchanged.
+A reset that turns management off or moves it returns without waiting
+on the request that called it. The old management server stops accepting
+at once and drains in the background for up to 5s, then remaining
+connections are closed. A non-nil error from a move means the previous
+listener was left in place. A failed attempt to turn management off
+still rebinds the address that is still active, because that call may
+already have closed the listener.

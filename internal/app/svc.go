@@ -74,6 +74,9 @@ type App struct {
 	trapRebind    func(addr string) error
 	httpRebind    func(addr string) error
 	dataPlaneSync func(desired DesiredListeners) error
+	// trapPolicyFail, when set, makes applyTrapPolicy return that error
+	// before ReplaceCaps. Reset tests use it. Production leaves it nil.
+	trapPolicyFail error
 
 	metrics *observability.Registry
 	logger  *observability.Logger
@@ -265,6 +268,7 @@ func (s *App) SetTrapRebind(fn func(addr string) error) {
 }
 
 // SetHTTPRebind installs the management HTTP bind-new-first hook.
+// A non-nil error means the previous listener is untouched.
 func (s *App) SetHTTPRebind(fn func(addr string) error) {
 	if s == nil {
 		return

@@ -72,6 +72,28 @@ func validateNotes(path string) error {
 	return nil
 }
 
+// releaseTag is the bare tag the gate must match against headBranch.
+// GITHUB_REF wins when it is a tag ref; otherwise GITHUB_REF_NAME is used.
+// Both sources are stripped of a refs/tags/ prefix. An empty result, including
+// a branch ref with an empty name, is an error.
+func releaseTag() (string, error) {
+	ref := strings.TrimSpace(os.Getenv("GITHUB_REF"))
+	name := strings.TrimSpace(os.Getenv("GITHUB_REF_NAME"))
+	var tag string
+	switch {
+	case strings.HasPrefix(ref, "refs/tags/"):
+		tag = strings.TrimPrefix(ref, "refs/tags/")
+	case strings.HasPrefix(ref, "refs/heads/") && name == "":
+		return "", fmt.Errorf("release tag is empty")
+	default:
+		tag = strings.TrimPrefix(name, "refs/tags/")
+	}
+	if tag == "" {
+		return "", fmt.Errorf("release tag is empty")
+	}
+	return tag, nil
+}
+
 func requireGreenCI() error {
 	sha := strings.TrimSpace(os.Getenv("GITHUB_SHA"))
 	if sha == "" {
@@ -81,10 +103,14 @@ func requireGreenCI() error {
 		}
 		sha = strings.TrimSpace(string(out))
 	}
+	tag, err := releaseTag()
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command("gh", "run", "list",
 		"--workflow=ci.yml",
 		"--commit="+sha,
-		"--json", "databaseId,conclusion,status,headSha,event,displayTitle")
+		"--json", "databaseId,conclusion,status,headSha,event,displayTitle,headBranch")
 	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("gh run list: %w", err)
@@ -94,27 +120,34 @@ func requireGreenCI() error {
 		Conclusion string `json:"conclusion"`
 		Status     string `json:"status"`
 		HeadSHA    string `json:"headSha"`
+		HeadBranch string `json:"headBranch"`
 		Event      string `json:"event"`
 	}
 	if err := json.Unmarshal(out, &runs); err != nil {
 		return fmt.Errorf("parse gh run list: %w", err)
 	}
-	var id int
+	found := false
+	var newest struct {
+		DatabaseID int
+		Status     string
+	}
 	for _, r := range runs {
-		if r.Status != "completed" {
+		if r.Event != "push" || r.HeadSHA != sha || r.HeadBranch != tag {
 			continue
 		}
-		if r.Event == "push" {
-			id = r.DatabaseID
-			break
-		}
-		if id == 0 {
-			id = r.DatabaseID
+		if !found || r.DatabaseID > newest.DatabaseID {
+			newest.DatabaseID = r.DatabaseID
+			newest.Status = r.Status
+			found = true
 		}
 	}
-	if id == 0 {
-		return fmt.Errorf("no completed CI run for commit %s", sha)
+	if !found {
+		return fmt.Errorf("no matching run for tag %s commit %s", tag, sha)
 	}
+	if newest.Status != "completed" {
+		return fmt.Errorf("CI run %d for tag %s is pending (status %s)", newest.DatabaseID, tag, newest.Status)
+	}
+	id := newest.DatabaseID
 	view := exec.Command("gh", "run", "view", fmt.Sprintf("%d", id), "--json", "jobs")
 	jobJSON, err := view.Output()
 	if err != nil {

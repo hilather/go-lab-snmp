@@ -28,6 +28,30 @@ func actorOf(p auth.Principal) app.Actor {
 	}
 }
 
+// fixedActor re-authenticates the startup bearer on every call.
+// The caller's FixedActor is an identity anchor, not a scope cache, and is never mutated.
+// A pin with no verifier keeps the startup snapshot.
+// A secret that no longer authenticates returns no actor.
+// On success the actor is the live principal for that secret, which may
+// be a different id than the one recorded at process start.
+func (s *Server) fixedActor() (app.Actor, bool) {
+	if s == nil || s.cfg.FixedActor == nil {
+		return app.Actor{}, false
+	}
+	if s.cfg.Auth != nil {
+		p, err := s.cfg.Auth.AuthenticateBearer(s.cfg.StdioSecret)
+		if err != nil {
+			return app.Actor{}, false
+		}
+		return actorOf(p), true
+	}
+	out := *s.cfg.FixedActor
+	if out.Transport == "" {
+		out.Transport = "mcp"
+	}
+	return out, true
+}
+
 func (s *Server) authenticate(r *http.Request) (app.Actor, error) {
 	if s.cfg.Auth == nil {
 		return app.Actor{}, domainerr.Unauthenticated("authentication required")
@@ -37,9 +61,9 @@ func (s *Server) authenticate(r *http.Request) (app.Actor, error) {
 		return app.Actor{}, domainerr.Unauthenticated("MCP accepts bearer tokens only")
 	}
 	if s.cfg.FixedActor != nil && h == "" {
-		out := *s.cfg.FixedActor
-		if out.Transport == "" {
-			out.Transport = "mcp"
+		out, ok := s.fixedActor()
+		if !ok {
+			return app.Actor{}, domainerr.Unauthenticated("authentication required")
 		}
 		return out, nil
 	}

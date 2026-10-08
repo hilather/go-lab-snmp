@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/hilather/go-lab-snmp/internal/audit"
 	"github.com/hilather/go-lab-snmp/internal/compiler"
@@ -15,9 +17,11 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
-// Reset rereads the bootstrap mount, compiles, drops the SET overlay, wipes
-// traps and queries, and swaps only after success. It never writes the file.
-// CLI listen flags still win after Reset.
+// Reset rereads the bootstrap mount, compiles, applies trap policy, then
+// drops the SET overlay and wipes traps and queries. It swaps only after
+// success. A trap-policy failure leaves the ephemeral store and the active
+// snapshot unchanged. It never writes the file. CLI listen flags still win
+// after Reset.
 func (s *App) Reset(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult, error) {
 	if err := s.requireCtx(ctx); err != nil {
 		return nil, err
@@ -52,54 +56,58 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		return nil, nil, err
 	}
 
-	oldSNMP, oldTrap, oldMgmt := "", "", ""
+	prevL := s.listenersFor(prev)
+	nextL := s.listenersFor(next)
+	// An empty YAML address still honors the CLI override, including when prev is nil.
+	prevAddr := ""
 	if prev != nil {
-		oldSNMP = effectiveSNMP(s.snmpOverride, prev.AgentAddress, prev.AgentEnabled)
-		oldTrap = effectiveTrap(s.trapOverride, prev.TrapAddress, prev.TrapsEnabled)
-		oldMgmt = effectiveMgmt(s.mgmtOverride, prev.ManagementAddress)
+		prevAddr = prev.ManagementAddress
 	}
-	newSNMP := effectiveSNMP(s.snmpOverride, next.AgentAddress, next.AgentEnabled)
-	newTrap := effectiveTrap(s.trapOverride, next.TrapAddress, next.TrapsEnabled)
+	oldMgmt := effectiveMgmt(s.mgmtOverride, prevAddr)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
-	cert, key, ca := resolveDTLSCreds(next, filepath.Dir(s.bootstrapPath))
-	desired := DesiredListeners{
-		AgentUDP:         newSNMP,
-		TrapUDP:          newTrap,
-		AgentTCP:         effectiveTCP(next.TCPEnabled, next.TCPAddress, newSNMP),
-		TrapTCP:          effectiveTCP(next.TCPEnabled, next.TCPTrapsAddress, newTrap),
-		AgentDTLS:        effectiveDTLS(s.dtlsOverride, next.DTLSAddress, next.DTLSEnabled),
-		TrapDTLS:         effectiveDTLS(s.dtlsTrapOverride, next.DTLSTrapsAddress, next.DTLSEnabled),
-		DTLSCertFile:     cert,
-		DTLSKeyFile:      key,
-		DTLSClientCAFile: ca,
-	}
+	synced := false
+	agentMoved := false
+	trapMoved := false
+	mgmtMoved := false
 	if s.dataPlaneSync != nil {
-		if err := s.dataPlaneSync(desired); err != nil {
+		if err := s.dataPlaneSync(nextL); err != nil {
+			// Sync closes sockets opened in a failed call and leaves the previous bind.
 			return nil, nil, asDomain(err)
 		}
+		synced = true
 	} else {
-		if s.snmpRebind != nil && newSNMP != oldSNMP {
-			if err := s.snmpRebind(newSNMP); err != nil {
+		if s.snmpRebind != nil && nextL.AgentUDP != prevL.AgentUDP {
+			if err := s.snmpRebind(nextL.AgentUDP); err != nil {
 				return nil, nil, asDomain(err)
 			}
+			agentMoved = true
 		}
-		if s.trapRebind != nil && newTrap != oldTrap {
-			if err := s.trapRebind(newTrap); err != nil {
-				return nil, nil, asDomain(err)
+		if s.trapRebind != nil && nextL.TrapUDP != prevL.TrapUDP {
+			if err := s.trapRebind(nextL.TrapUDP); err != nil {
+				return nil, nil, s.rollbackListeners(err, false, agentMoved, false, mgmtMoved, oldMgmt, prevL)
 			}
+			trapMoved = true
 		}
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
 		if err := s.httpRebind(newMgmt); err != nil {
-			return nil, nil, asDomain(err)
+			// A non-nil error means the previous listener is untouched, so
+			// management was not moved. Empty newMgmt is the exception: the
+			// hook may already have closed the listener and still returned
+			// an error. Treat that as moved so rollback rebinds oldMgmt.
+			if newMgmt == "" {
+				mgmtMoved = true
+			}
+			return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, mgmtMoved, oldMgmt, prevL)
 		}
+		mgmtMoved = true
 	}
 
-	store.ResetEphemeral(s.overlay, s.traps, s.queries)
 	if err := s.applyTrapPolicy(next); err != nil {
-		return nil, nil, err
+		return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, mgmtMoved, oldMgmt, prevL)
 	}
+	store.ResetEphemeral(s.overlay, s.traps, s.queries)
 
 	displaced := s.snaps.Swap(next)
 	s.snaps.SetBootstrap(next)
@@ -177,6 +185,68 @@ func (s *App) loadBootstrapCandidate(gen model.Generation) (*snapshot.Snapshot, 
 		return nil, asDomain(err)
 	}
 	return snap, nil
+}
+
+// listenersFor is the desired bind set for snap, including CLI overrides.
+// A nil snapshot yields every listener off.
+func (s *App) listenersFor(snap *snapshot.Snapshot) DesiredListeners {
+	if snap == nil {
+		return DesiredListeners{}
+	}
+	agentUDP := effectiveSNMP(s.snmpOverride, snap.AgentAddress, snap.AgentEnabled)
+	trapUDP := effectiveTrap(s.trapOverride, snap.TrapAddress, snap.TrapsEnabled)
+	cert, key, ca := resolveDTLSCreds(snap, filepath.Dir(s.bootstrapPath))
+	return DesiredListeners{
+		AgentUDP:         agentUDP,
+		TrapUDP:          trapUDP,
+		AgentTCP:         effectiveTCP(snap.TCPEnabled, snap.TCPAddress, agentUDP),
+		TrapTCP:          effectiveTCP(snap.TCPEnabled, snap.TCPTrapsAddress, trapUDP),
+		AgentDTLS:        effectiveDTLS(s.dtlsOverride, snap.DTLSAddress, snap.DTLSEnabled),
+		TrapDTLS:         effectiveDTLS(s.dtlsTrapOverride, snap.DTLSTrapsAddress, snap.DTLSEnabled),
+		DTLSCertFile:     cert,
+		DTLSKeyFile:      key,
+		DTLSClientCAFile: ca,
+	}
+}
+
+// rollbackListeners puts sockets back on the snapshot that is still active.
+// A hook is undone only when that hook already returned nil. Management is
+// undone first, then the data plane. On the fallback path the trap is undone
+// before the agent, and a later undo still runs if an earlier undo fails.
+// Every failed undo is appended to the returned error.
+func (s *App) rollbackListeners(orig error, synced, agentMoved, trapMoved, mgmtMoved bool, oldMgmt string, prev DesiredListeners) error {
+	var undos []error
+	if mgmtMoved && s.httpRebind != nil {
+		if err := s.httpRebind(oldMgmt); err != nil {
+			undos = append(undos, err)
+		}
+	}
+	if synced && s.dataPlaneSync != nil {
+		if err := s.dataPlaneSync(prev); err != nil {
+			undos = append(undos, err)
+		}
+	}
+	if !synced {
+		if trapMoved && s.trapRebind != nil {
+			if err := s.trapRebind(prev.TrapUDP); err != nil {
+				undos = append(undos, err)
+			}
+		}
+		if agentMoved && s.snmpRebind != nil {
+			if err := s.snmpRebind(prev.AgentUDP); err != nil {
+				undos = append(undos, err)
+			}
+		}
+	}
+	if len(undos) == 0 {
+		return asDomain(orig)
+	}
+	parts := make([]string, 0, len(undos))
+	for _, err := range undos {
+		parts = append(parts, err.Error())
+	}
+	msg := orig.Error() + "; rollback: " + strings.Join(parts, "; ")
+	return asDomain(errors.New(msg))
 }
 
 func canonicalOf(s *snapshot.Snapshot) *model.State {

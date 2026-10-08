@@ -34,6 +34,15 @@ func TestObservableRel(t *testing.T) {
 	}
 }
 
+func TestDefaultBaseSkipsTagPush(t *testing.T) {
+	t.Setenv("GITHUB_REF_TYPE", "tag")
+	t.Setenv("GITHUB_BASE_REF", "")
+	t.Setenv("GITHUB_EVENT_BEFORE", "")
+	if got := defaultBase(); got != "" {
+		t.Fatalf("defaultBase()=%q want empty on a tag push", got)
+	}
+}
+
 func TestCheckMissingBaseIsEmptyDiff(t *testing.T) {
 	root, err := repoRoot()
 	if err != nil {

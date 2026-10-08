@@ -35,6 +35,10 @@ const (
 	headerRevision           = "X-LabSNMP-Revision"
 	headerAllow              = "Allow"
 	requestURNPrefix         = "urn:labsnmp:request:"
+	// managementDrainTimeout bounds the background drain of a management
+	// server that has stopped accepting. Leftover connections (long-poll
+	// traps:wait, SSE) are closed when the drain exceeds it.
+	managementDrainTimeout = 5 * time.Second
 )
 
 // Config constructs a management HTTP server.
@@ -77,10 +81,16 @@ type Server struct {
 	metrics  *observability.Registry
 	logger   *observability.Logger
 
-	sec    sync.RWMutex
-	mu     sync.Mutex
-	http   *http.Server
-	ln     net.Listener
+	sec  sync.RWMutex
+	mu   sync.Mutex
+	http *http.Server
+	ln   net.Listener
+	// drains are management servers Rebind detached. Each channel is
+	// closed when that drain finishes, including Close after a timeout.
+	// A slice under mu, not a WaitGroup: Add concurrent with Wait panics
+	// once the counter has hit zero, and Rebind can start a drain while
+	// Shutdown is waiting.
+	drains []chan struct{}
 	closed atomic.Bool
 	addr   string
 }
@@ -206,20 +216,33 @@ func (s *Server) newHTTPServer() *http.Server {
 	}
 }
 
-// Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
-// Bound stays true on the new listener as soon as Listen succeeds (docs/09).
+// Rebind moves the management listener to addr. An empty addr stops
+// accepting and clears the listener. The old server stops accepting
+// before Rebind returns and drains in the background; Rebind does not
+// wait for that drain. Bound is true on the new listener as soon as
+// Listen succeeds, and false after an unbind (docs/09).
+//
+// A non-nil error means the previous listener is untouched. That is
+// only a failed net.Listen on the new address.
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
 	}
+	if addr == "" {
+		s.mu.Lock()
+		s.closed.Store(true)
+		hs := s.http
+		ln := s.ln
+		s.http = nil
+		s.ln = nil
+		s.addr = ""
+		s.mu.Unlock()
+		s.drainAsync(hs, ln)
+		return nil
+	}
 	s.mu.Lock()
 	cur := s.addr
 	s.mu.Unlock()
-	if addr == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return s.Shutdown(ctx)
-	}
 	if addr == cur && s.Bound() {
 		return nil
 	}
@@ -230,18 +253,75 @@ func (s *Server) Rebind(addr string) error {
 	hs := s.newHTTPServer()
 	s.mu.Lock()
 	old := s.http
+	oldLn := s.ln
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
 	s.closed.Store(false)
 	s.mu.Unlock()
 	go func() { _ = hs.Serve(ln) }()
-	if old != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = old.Shutdown(ctx)
-		cancel()
-	}
+	s.drainAsync(old, oldLn)
 	return nil
+}
+
+// drainAsync closes ln before it returns, then drains hs in the
+// background for managementDrainTimeout. A timed-out drain calls Close
+// so connections on a server that is no longer bound do not stay open.
+//
+// Shutdown sets inShutdown, closes listeners it is already tracking,
+// and only then runs RegisterOnShutdown hooks via go f(). Waiting for
+// that hook before closing ln keeps Serve from observing a raw close
+// and returning "use of closed network connection" instead of
+// ErrServerClosed. The raw listener is closed here as well because
+// Serve may not have tracked it yet; a second close returns errClosing.
+//
+// net/http runs every onShutdown hook again on each later Shutdown.
+// The hook only closes the signal, so a second close would panic an
+// unrecovered goroutine. sync.Once makes that signal idempotent.
+func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
+	if hs == nil {
+		if ln != nil {
+			_ = ln.Close()
+		}
+		return
+	}
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.drains = append(s.drains, done)
+	s.mu.Unlock()
+
+	started := make(chan struct{})
+	var once sync.Once
+	hs.RegisterOnShutdown(func() {
+		once.Do(func() { close(started) })
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), managementDrainTimeout)
+	go func() {
+		defer s.finishDrain(done)
+		err := hs.Shutdown(ctx)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) {
+			_ = hs.Close()
+		}
+	}()
+	<-started
+	if ln != nil {
+		_ = ln.Close()
+	}
+}
+
+// finishDrain drops done from the in-flight set, then closes it so a
+// Shutdown that already copied the slice still wakes.
+func (s *Server) finishDrain(done chan struct{}) {
+	s.mu.Lock()
+	for i, ch := range s.drains {
+		if ch == done {
+			s.drains = append(s.drains[:i], s.drains[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	close(done)
 }
 
 // Bound reports whether a listener is accepting.
@@ -255,27 +335,56 @@ func (s *Server) Bound() bool {
 }
 
 // Shutdown closes the listener and waits for in-flight requests.
+// It also waits for management servers that Rebind detached into a
+// background drain. That wait is bounded by ctx. If ctx ends first,
+// Shutdown returns ctx.Err() and does not wait out the drain.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed.Store(true)
 	s.mu.Lock()
 	hs := s.http
 	ln := s.ln
 	s.mu.Unlock()
+	var err error
 	if hs != nil {
-		return hs.Shutdown(ctx)
+		err = hs.Shutdown(ctx)
+	} else if ln != nil {
+		err = ln.Close()
 	}
-	if ln != nil {
-		return ln.Close()
+	if werr := s.waitDrains(ctx); err == nil {
+		err = werr
+	}
+	return err
+}
+
+// waitDrains waits for background drains already started when it is
+// called. Drains that finish before the snapshot are already gone.
+func (s *Server) waitDrains(ctx context.Context) error {
+	s.mu.Lock()
+	pending := append([]chan struct{}(nil), s.drains...)
+	s.mu.Unlock()
+	for _, done := range pending {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
 	}
 	return nil
 }
 
 // Addr returns the bound address after Serve, or the configured listen address.
+// After Rebind(""), Bound is false and Addr is empty.
 func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ln != nil {
 		return s.ln.Addr().String()
+	}
+	if s.addr != "" {
+		return s.addr
+	}
+	if s.closed.Load() {
+		return ""
 	}
 	if s.cfg.Addr != "" {
 		return s.cfg.Addr

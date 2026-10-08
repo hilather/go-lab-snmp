@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Deployment
-Last reviewed: 2026-09-05
+Last reviewed: 2026-10-07
 
 Scratch image UID **65532:65532**, `CGO_ENABLED=0`, no Node stage,
 no shell. Image `ghcr.io/hilather/labsnmp`. Config
@@ -25,9 +25,13 @@ CMD binds `:8088` so HEALTHCHECK and authenticated `/v1` work.
 Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
 `1.26.6` pin). The operator SPA is `go:embed` of committed
 `internal/web/dist`. `GET /` is 200 SPA HTML when `spec.ui.enabled`
-is true; 404 `application/problem+json` when false. Tag-gate + GHCR
-publish is `.github/workflows/release.yml` on `v*` after required CI
-is green. Image CMD is unchanged (UDP + management). Do not
+is true; 404 `application/problem+json` when false. CI runs on `v*`
+tags. Tag-gate + GHCR publish is `.github/workflows/release.yml`; the
+gate requires that tag's own completed push run. The tag reaches the
+shell only through `RELEASE_REF`. A tag push whose gate times out
+must be re-run on that push workflow run ("Re-run jobs");
+`workflow_dispatch` re-gates but does not publish. Image CMD is
+unchanged (UDP + management). Do not
 `EXPOSE 10161/udp`: in-container DTLS is `:10161` (IANA snmp-dtls);
 host residual **10161** is UDP 161 ([ADR 0014](adr/0014-host-residual-10161-10162.md)
 unchanged). RFC 3430 TCP and DTLS 1.2 record layer bind when YAML
@@ -91,7 +95,7 @@ Appliance smoke does **not** enable TCP/DTLS.
 | `--dtls-listen` | empty → YAML `:10161` when `dtls.enabled` | address or `off`; `off` disables agent DTLS |
 | `--dtls-trap-listen` | empty → YAML `:10162` when `dtls.enabled` | address or `off`; `off` disables trap DTLS |
 | `--management-listen` | **off** | YAML `management.address` does not bind unless this flag is an address. Image CMD `:8088`. |
-| `--shutdown-timeout` | 10s | drain |
+| `--shutdown-timeout` | 10s | drain, including a background management drain |
 | `--pid-file` | empty | write pid after binds; write failure shuts down and exits 1; unlinked on shutdown |
 
 There is no `--tcp-listen`. TCP addresses come from YAML `tcp.address` /
