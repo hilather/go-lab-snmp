@@ -184,5 +184,5 @@ that listener), swap snapshot, increment `storeGeneration`. Never writes
 the file. CLI listen flags still win after Reset. Trap policy is applied
 before that ephemeral wipe. If a later step fails after the data-plane
 sync has swapped sockets, or trap policy fails, Reset syncs the previous
-listeners again and leaves the active snapshot, overlay, traps, and query
-ring unchanged.
+listeners again and rebinds management when that bind already succeeded.
+The active snapshot, overlay, traps, and query ring stay unchanged.

@@ -67,6 +67,7 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	synced := false
 	agentMoved := false
 	trapMoved := false
+	mgmtMoved := false
 	if s.dataPlaneSync != nil {
 		if err := s.dataPlaneSync(nextL); err != nil {
 			// Sync closes sockets opened in a failed call and leaves the previous bind.
@@ -82,19 +83,21 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		}
 		if s.trapRebind != nil && nextL.TrapUDP != prevL.TrapUDP {
 			if err := s.trapRebind(nextL.TrapUDP); err != nil {
-				return nil, nil, s.rollbackListeners(err, false, agentMoved, false, prevL)
+				return nil, nil, s.rollbackListeners(err, false, agentMoved, false, mgmtMoved, oldMgmt, prevL)
 			}
 			trapMoved = true
 		}
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
 		if err := s.httpRebind(newMgmt); err != nil {
-			return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, prevL)
+			// mgmtMoved stays false: this call did not succeed, so do not rebind back.
+			return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, mgmtMoved, oldMgmt, prevL)
 		}
+		mgmtMoved = true
 	}
 
 	if err := s.applyTrapPolicy(next); err != nil {
-		return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, prevL)
+		return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, mgmtMoved, oldMgmt, prevL)
 	}
 	store.ResetEphemeral(s.overlay, s.traps, s.queries)
 
@@ -199,11 +202,17 @@ func (s *App) listenersFor(snap *snapshot.Snapshot) DesiredListeners {
 }
 
 // rollbackListeners puts sockets back on the snapshot that is still active.
-// A fallback hook is undone only when that hook already returned nil. Trap
-// is undone before the agent, and the agent undo still runs if the trap
-// undo fails. Every failed undo is appended to the returned error.
-func (s *App) rollbackListeners(orig error, synced, agentMoved, trapMoved bool, prev DesiredListeners) error {
+// A hook is undone only when that hook already returned nil. Management is
+// undone first, then the data plane. On the fallback path the trap is undone
+// before the agent, and a later undo still runs if an earlier undo fails.
+// Every failed undo is appended to the returned error.
+func (s *App) rollbackListeners(orig error, synced, agentMoved, trapMoved, mgmtMoved bool, oldMgmt string, prev DesiredListeners) error {
 	var undos []error
+	if mgmtMoved && s.httpRebind != nil {
+		if err := s.httpRebind(oldMgmt); err != nil {
+			undos = append(undos, err)
+		}
+	}
 	if synced && s.dataPlaneSync != nil {
 		if err := s.dataPlaneSync(prev); err != nil {
 			undos = append(undos, err)

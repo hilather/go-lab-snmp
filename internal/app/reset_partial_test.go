@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hilather/go-lab-snmp/internal/mibtree"
+	"github.com/hilather/go-lab-snmp/internal/model"
+	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
 // activeListeners is the data-plane bind set of the snapshot that is still
@@ -324,5 +328,133 @@ func TestFailedRebindRollbackErrorStillUndoesAgent(t *testing.T) {
 	const want = "management bind failed; rollback: trap rollback failed; agent rollback failed"
 	if !strings.Contains(msg, want) {
 		t.Fatalf("error %q missing %q", msg, want)
+	}
+}
+
+// TestResetTrapPolicyFailureRebindsManagementBack asserts that a trap-policy
+// failure after a successful management rebind puts that listener back on the
+// address of the snapshot that is still active. The active snapshot and the
+// ephemeral store stay unchanged.
+func TestResetTrapPolicyFailureRebindsManagementBack(t *testing.T) {
+	const (
+		addrA     = ":8088"
+		addrB     = "127.0.0.1:18088"
+		policyErr = "replace caps failed"
+	)
+
+	t.Run("rebinds to the active address", func(t *testing.T) {
+		svc, before := bootManagementCandidate(t, addrA, addrB)
+		var calls []string
+		svc.SetHTTPRebind(func(addr string) error {
+			calls = append(calls, addr)
+			return nil
+		})
+		svc.trapPolicyFail = errors.New(policyErr)
+
+		_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "trap-policy"})
+		if err == nil || !strings.Contains(err.Error(), policyErr) {
+			t.Fatalf("error %v, want trap-policy failure", err)
+		}
+		if strings.Contains(err.Error(), "rollback:") {
+			t.Fatalf("successful rebind-back appended a rollback error: %v", err)
+		}
+		want := []string{addrB, addrA}
+		if len(calls) != len(want) || calls[0] != want[0] || calls[1] != want[1] {
+			t.Fatalf("httpRebind %v, want %v", calls, want)
+		}
+		assertResetKeptState(t, svc, before)
+	})
+
+	t.Run("rollback error is appended", func(t *testing.T) {
+		svc, before := bootManagementCandidate(t, addrA, addrB)
+		var calls []string
+		svc.SetHTTPRebind(func(addr string) error {
+			calls = append(calls, addr)
+			if addr == addrA {
+				return errors.New("management rollback failed")
+			}
+			return nil
+		})
+		svc.trapPolicyFail = errors.New(policyErr)
+
+		_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "trap-policy-rollback"})
+		if err == nil {
+			t.Fatal("expected trap-policy failure")
+		}
+		const want = "replace caps failed; rollback: management rollback failed"
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q missing %q", err.Error(), want)
+		}
+		got := []string{addrB, addrA}
+		if len(calls) != len(got) || calls[0] != got[0] || calls[1] != got[1] {
+			t.Fatalf("httpRebind %v, want %v", calls, got)
+		}
+		assertResetKeptState(t, svc, before)
+	})
+}
+
+type resetKeptState struct {
+	rev     model.Revision
+	mgmt    string
+	gen     uint64
+	policy  store.TrapPolicy
+	traps   store.TrapStats
+	queries int
+	oid     string
+}
+
+func bootManagementCandidate(t *testing.T, addrA, addrB string) (*App, resetKeptState) {
+	t.Helper()
+	path := copyFull(t)
+	svc := bootPath(t, path)
+	if got := svc.Active().ManagementAddress; got != addrA {
+		t.Fatalf("management address %q, want %q", got, addrA)
+	}
+	const oid = "1.3.6.1.2.1.2.2.1.8.1"
+	svc.Overlay().Set("public-if", oid, mibtree.Value{Type: model.TypeInteger, Signed: 5})
+	if _, err := svc.Traps().Insert(store.TrapRecord{Version: "v2c", PDUType: "trap", Community: "public"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.Queries().Insert(store.Query{Type: "get", Identity: "public", Decision: "ok"})
+	before := resetKeptState{
+		rev:     svc.Active().Revision,
+		mgmt:    svc.Active().ManagementAddress,
+		gen:     svc.Overlay().Generation(),
+		policy:  svc.Traps().Policy(),
+		traps:   svc.Traps().Stats(),
+		queries: svc.Queries().Len(),
+		oid:     oid,
+	}
+	rewriteFixture(t, path, `address: "`+addrA+`"`, `address: "`+addrB+`"`)
+	return svc, before
+}
+
+func assertResetKeptState(t *testing.T, svc *App, before resetKeptState) {
+	t.Helper()
+	if svc.Active().Revision != before.rev {
+		t.Fatalf("snapshot revision changed %s -> %s", before.rev, svc.Active().Revision)
+	}
+	if svc.Active().ManagementAddress != before.mgmt {
+		t.Fatalf("management address %q, want %q", svc.Active().ManagementAddress, before.mgmt)
+	}
+	val, ok := svc.Overlay().Get("public-if", before.oid)
+	if !ok || val.Signed != 5 {
+		t.Fatal("failed reset wiped the overlay")
+	}
+	if svc.Overlay().Generation() != before.gen {
+		t.Fatalf("overlay generation %d, want %d", svc.Overlay().Generation(), before.gen)
+	}
+	if st := svc.Traps().Stats(); st.Messages != before.traps.Messages || st.Generation != before.traps.Generation {
+		t.Fatalf("failed reset wiped traps: messages %d gen %d, want messages %d gen %d", st.Messages, st.Generation, before.traps.Messages, before.traps.Generation)
+	}
+	if svc.Traps().Policy() != before.policy {
+		t.Fatalf("trap policy changed from %+v to %+v", before.policy, svc.Traps().Policy())
+	}
+	if svc.Queries().Len() != before.queries {
+		t.Fatalf("failed reset wiped queries: len %d, want %d", svc.Queries().Len(), before.queries)
+	}
+	listed := svc.Queries().List()
+	if len(listed) != 1 || listed[0].Identity != "public" {
+		t.Fatalf("queries after failed reset: %+v", listed)
 	}
 }
