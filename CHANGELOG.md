@@ -10,7 +10,12 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Changed
 
-- None.
+- CI setup-go `go-version` is 1.26.8 (1.26.0-1.26.7 lack current
+  stdlib security fixes). `go.mod` stays `go 1.26` with no toolchain
+  line and the image stays `golang:1.26-alpine` (pack design).
+  golang.org/x/crypto stays v0.48.0: govulncheck findings are
+  module-level only, and the fixed release rewrites `go 1.26` to
+  `go 1.26.0` and pulls x/sys.
 
 ### Fixed
 
