@@ -22,6 +22,10 @@ All notable user-visible and operator-visible changes are recorded here.
   (GHSA-68fv-2mgg-jv7q, high: event-loop denial of service through
   indexed source-map section offsets). Lockfile only; the built web
   assets are byte-identical.
+- Web development dependency `undici` updates from 8.10.0 to 8.10.2 (via
+  jsdom; GHSA-rfgv-xxqx-mfg5, GHSA-w293-vg96-wgc3 and
+  GHSA-vp8m-p9jh-q5pm high, plus eight moderate or low undici
+  advisories). Lockfile only; the built web assets are byte-identical.
 
 ### Fixed
 
