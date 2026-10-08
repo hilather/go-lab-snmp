@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Testing
-Last reviewed: 2026-09-05
+Last reviewed: 2026-10-07
 
 Unit next to the package. Packet goldens in `testdata/packets` are
 constructed valid messages (1.0 committed corpus). Skip-if-missing
@@ -18,5 +18,7 @@ RFC 3430 TCP framing (`make test-fuzz-smoke`). Soak GETNEXT+SET+trap is CI-safe 
 2s; `LABSNMP_SOAK_DURATION` for a longer pre-tag run). Container
 script on :1161/:1162 (`make test-container`; skip if Docker is
 missing; net-snmp CLI interop skip if missing). `make security-scan`
-is govulncheck. Tag-gate requires green CI on the exact SHA before
-`v1.0.0`.
+is govulncheck. CI runs on `v*` tags. The tag gate requires that
+tag's own completed push run; a pull_request run or a main-branch
+push of the same SHA does not. The tag reaches the release shell
+only through `RELEASE_REF`.

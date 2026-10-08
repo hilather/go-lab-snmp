@@ -118,6 +118,9 @@ func changedFiles(root, base string) ([]string, error) {
 }
 
 func defaultBase() string {
+	if os.Getenv("GITHUB_REF_TYPE") == "tag" {
+		return ""
+	}
 	if v := os.Getenv("GITHUB_BASE_REF"); v != "" {
 		if !strings.HasPrefix(v, "origin/") {
 			return "origin/" + v

@@ -34,7 +34,7 @@ jobs:
   tag-gate:
     name: tag-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,10 +60,16 @@ jobs:
 
       - name: Resolve notes path
         id: gate
+        env:
+          RELEASE_REF: ${{ github.event.inputs.ref || github.ref_name }}
         run: |
           set -euo pipefail
-          ref="${{ github.event.inputs.ref || github.ref_name }}"
-          ref="${ref#refs/tags/}"
+          ref="${RELEASE_REF#refs/tags/}"
+          re='^v[0-9A-Za-z.+-]+$'
+          if [[ ! "$ref" =~ $re ]]; then
+            echo "ref is not a version tag: ${ref}" >&2
+            exit 1
+          fi
           notes="docs/releases/${ref}.md"
           if [ ! -f "${notes}" ]; then
             echo "missing release notes ${notes}" >&2
@@ -73,13 +79,38 @@ jobs:
           echo "notes=${notes}" >> "$GITHUB_OUTPUT"
 
       - name: Validate release notes headings
-        run: go run ./scripts/release-gate -notes-only -notes "${{ steps.gate.outputs.notes }}"
+        env:
+          NOTES: ${{ steps.gate.outputs.notes }}
+        run: go run ./scripts/release-gate -notes-only -notes "$NOTES"
 
       - name: Require green CI on this commit
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_SHA: ${{ steps.rev.outputs.sha }}
-        run: go run ./scripts/release-gate -require-ci
+          GITHUB_REF: refs/tags/${{ steps.gate.outputs.ref }}
+          GITHUB_REF_NAME: ${{ steps.gate.outputs.ref }}
+        run: |
+          set -uo pipefail
+          deadline=$((SECONDS + 35 * 60))
+          while true; do
+            if out=$(go run ./scripts/release-gate -require-ci 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            echo "$out"
+            case "$out" in
+              *pending*|*"no matching run"*)
+                ;;
+              *)
+                exit 1
+                ;;
+            esac
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "timed out waiting for the tag CI run" >&2
+              exit 1
+            fi
+            sleep 30
+          done
 
   publish-image:
     name: publish-image
@@ -134,9 +165,12 @@ jobs:
             BUILD_TIME=${{ github.event.head_commit.timestamp }}
 
       - name: Record digest
+        env:
+          RELEASE_REF: ${{ github.ref_name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           {
-            echo "ghcr.io/hilather/labsnmp:${{ github.ref_name }}"
-            echo "ghcr.io/hilather/labsnmp@${{ steps.build.outputs.digest }}"
+            echo "ghcr.io/hilather/labsnmp:${RELEASE_REF}"
+            echo "ghcr.io/hilather/labsnmp@${DIGEST}"
           } >> "$GITHUB_STEP_SUMMARY"
