@@ -107,7 +107,7 @@ Copied from `AGENTS.md`. Do not rename.
 | Resources | `labsnmp://…` |
 | MCP protocol | `2026-07-28` |
 | MCP SDK | `github.com/modelcontextprotocol/go-sdk v1.7.0` |
-| Go | **1.26 language** (`go.mod` `go 1.26`). Any installed **1.26.x** satisfies the pack. Do not hard-fail because patch `1.26.6` is absent. |
+| Go | **1.26 language** (`go.mod` `go 1.26.0`). Any installed **1.26.x** satisfies the pack. Do not hard-fail because patch `1.26.6` is absent. No `toolchain` requirement. |
 | License | Apache-2.0 |
 
 ### Ports
@@ -311,7 +311,7 @@ WIRE vs USM split: WIRE decodes the v3 header + USM securityParameters + **ciphe
 
 Pack freeze is **Go 1.26**, not patch `1.26.6`. FND-001:
 
-- `go.mod`: `go 1.26` (no `toolchain go1.26.6` requirement)
+- `go.mod`: `go 1.26.0` (still the 1.26 language; any installed 1.26.x satisfies the pack; no `toolchain go1.26.6` requirement)
 - `mise.toml` (or `.tool-versions`): `go = "1.26"` so the local mise shim resolves; any installed 1.26.x (this machine has `1.26.5` and `1.26.7`) is enough
 - CI: `actions/setup-go` with `go-version: "1.26"` (or a patch setup-go can download, e.g. `1.26.7`). Do **not** set `GOTOOLCHAIN: local` unless that exact patch is installed
 - Image: `golang:1.26-alpine` (or `1.26.7-alpine`), not a hard `1.26.6-alpine` pin
@@ -1225,7 +1225,7 @@ Capability registry and YAML schema have a single owner each — do not fork the
 
 ### PR 1: FND-001 Repository foundation
 
-- **Files/components affected:** initial git commit on `main` + `git push -u origin main`; repo root `go.mod` (`github.com/hilather/go-lab-snmp`, `go 1.26`), `mise.toml` (`go = "1.26"`), `LICENSE` (Apache-2.0), `Makefile`, `.golangci.yml`, `.github/workflows/ci.yml`, `cmd/labsnmp` stub (`version`/`help`), `internal/buildinfo`, `internal/testutil`, `internal/domainerr` stub, package `doc.go` files from K2, **`internal/web` placeholder `go:embed` of committed non-empty `internal/web/dist/index.html`**, copy living `AGENTS.md`/`README.md`/`START-HERE.md`/`CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md`/`docs/**`/`tasks/**`/`examples/README.md` from the design pack to root, `docs/adr/0014-host-residual-10161-10162.md`, `scripts/checkdocs`, `scripts/checkchangelog` (empty-diff if no `origin/main`), Dial/forbidden-module AST tests, fail-closed placeholders for unimplemented Make targets
+- **Files/components affected:** initial git commit on `main` + `git push -u origin main`; repo root `go.mod` (`github.com/hilather/go-lab-snmp`, `go 1.26.0`), `mise.toml` (`go = "1.26"`), `LICENSE` (Apache-2.0), `Makefile`, `.golangci.yml`, `.github/workflows/ci.yml`, `cmd/labsnmp` stub (`version`/`help`), `internal/buildinfo`, `internal/testutil`, `internal/domainerr` stub, package `doc.go` files from K2, **`internal/web` placeholder `go:embed` of committed non-empty `internal/web/dist/index.html`**, copy living `AGENTS.md`/`README.md`/`START-HERE.md`/`CONTRIBUTING.md`/`SECURITY.md`/`CHANGELOG.md`/`docs/**`/`tasks/**`/`examples/README.md` from the design pack to root, `docs/adr/0014-host-residual-10161-10162.md`, `scripts/checkdocs`, `scripts/checkchangelog` (empty-diff if no `origin/main`), Dial/forbidden-module AST tests, fail-closed placeholders for unimplemented Make targets
 - **Dependencies:** None
 - **Description:** **Step 0:** create the first commit on `main` (this may not be a GitHub PR if `origin/main` does not exist) and `git push -u origin main`. Checkout then builds `labsnmp version` with any local 1.26.x. Unimplemented Make targets exit 1. CI runs format, lint, unit, race, test-docs, test-changelog; Go `1.26` via setup-go (not a hard `1.26.6` / `GOTOOLCHAIN=local` pin). Fix AGENTS import-fence names to `mibtree`/`snmpagent`. Fix docs/00 → `13-integration-lab-swap.md` and docs/04 → `03-mib-and-trap-store.md` so `test-docs` is green. Banner on copied `docs/implementation-design.md`: living contract is ADRs + AGENTS + numbered docs; rewrite CLI to `--snmp-listen` and package names to K2. No gosnmp in `go.mod`. At least one race-sensitive test. Design pack directory is not deleted. **`internal/web/dist/index.html` is a committed file** (`go:embed` cannot target an empty dir). `UIEnabled` stays false until UI-001.
 
