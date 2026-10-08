@@ -44,6 +44,8 @@ move binds the new listener before the old one stops accepting
 The old management server then drains in the background for up to
 5s, and remaining connections are closed. Turning management off
 stops accepting at once, clears `Bound`, and uses the same drain.
+Process shutdown also waits for a background drain, bounded by
+`--shutdown-timeout`.
 
 `GET /v1/status` `listeners[]` always includes `agent`, `traps`,
 and `management`. It may include `agent-tcp`, `traps-tcp`,

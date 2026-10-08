@@ -81,10 +81,16 @@ type Server struct {
 	metrics  *observability.Registry
 	logger   *observability.Logger
 
-	sec    sync.RWMutex
-	mu     sync.Mutex
-	http   *http.Server
-	ln     net.Listener
+	sec  sync.RWMutex
+	mu   sync.Mutex
+	http *http.Server
+	ln   net.Listener
+	// drains are management servers Rebind detached. Each channel is
+	// closed when that drain finishes, including Close after a timeout.
+	// A slice under mu, not a WaitGroup: Add concurrent with Wait panics
+	// once the counter has hit zero, and Rebind can start a drain while
+	// Shutdown is waiting.
+	drains []chan struct{}
 	closed atomic.Bool
 	addr   string
 }
@@ -231,7 +237,7 @@ func (s *Server) Rebind(addr string) error {
 		s.ln = nil
 		s.addr = ""
 		s.mu.Unlock()
-		drainAsync(hs, ln)
+		s.drainAsync(hs, ln)
 		return nil
 	}
 	s.mu.Lock()
@@ -254,7 +260,7 @@ func (s *Server) Rebind(addr string) error {
 	s.closed.Store(false)
 	s.mu.Unlock()
 	go func() { _ = hs.Serve(ln) }()
-	drainAsync(old, oldLn)
+	s.drainAsync(old, oldLn)
 	return nil
 }
 
@@ -267,19 +273,31 @@ func (s *Server) Rebind(addr string) error {
 // that hook before closing ln keeps Serve from observing a raw close
 // and returning "use of closed network connection" instead of
 // ErrServerClosed. The raw listener is closed here as well because
-// Serve may not have tracked it yet; onceCloseListener makes the
-// second close harmless.
-func drainAsync(hs *http.Server, ln net.Listener) {
+// Serve may not have tracked it yet; a second close returns errClosing.
+//
+// net/http runs every onShutdown hook again on each later Shutdown.
+// The hook only closes the signal, so a second close would panic an
+// unrecovered goroutine. sync.Once makes that signal idempotent.
+func (s *Server) drainAsync(hs *http.Server, ln net.Listener) {
 	if hs == nil {
 		if ln != nil {
 			_ = ln.Close()
 		}
 		return
 	}
+	done := make(chan struct{})
+	s.mu.Lock()
+	s.drains = append(s.drains, done)
+	s.mu.Unlock()
+
 	started := make(chan struct{})
-	hs.RegisterOnShutdown(func() { close(started) })
+	var once sync.Once
+	hs.RegisterOnShutdown(func() {
+		once.Do(func() { close(started) })
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), managementDrainTimeout)
 	go func() {
+		defer s.finishDrain(done)
 		err := hs.Shutdown(ctx)
 		cancel()
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -290,6 +308,20 @@ func drainAsync(hs *http.Server, ln net.Listener) {
 	if ln != nil {
 		_ = ln.Close()
 	}
+}
+
+// finishDrain drops done from the in-flight set, then closes it so a
+// Shutdown that already copied the slice still wakes.
+func (s *Server) finishDrain(done chan struct{}) {
+	s.mu.Lock()
+	for i, ch := range s.drains {
+		if ch == done {
+			s.drains = append(s.drains[:i], s.drains[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	close(done)
 }
 
 // Bound reports whether a listener is accepting.
@@ -303,17 +335,39 @@ func (s *Server) Bound() bool {
 }
 
 // Shutdown closes the listener and waits for in-flight requests.
+// It also waits for management servers that Rebind detached into a
+// background drain. That wait is bounded by ctx. If ctx ends first,
+// Shutdown returns ctx.Err() and does not wait out the drain.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.closed.Store(true)
 	s.mu.Lock()
 	hs := s.http
 	ln := s.ln
 	s.mu.Unlock()
+	var err error
 	if hs != nil {
-		return hs.Shutdown(ctx)
+		err = hs.Shutdown(ctx)
+	} else if ln != nil {
+		err = ln.Close()
 	}
-	if ln != nil {
-		return ln.Close()
+	if werr := s.waitDrains(ctx); err == nil {
+		err = werr
+	}
+	return err
+}
+
+// waitDrains waits for background drains already started when it is
+// called. Drains that finish before the snapshot are already gone.
+func (s *Server) waitDrains(ctx context.Context) error {
+	s.mu.Lock()
+	pending := append([]chan struct{}(nil), s.drains...)
+	s.mu.Unlock()
+	for _, done := range pending {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
 	}
 	return nil
 }

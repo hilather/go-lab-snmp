@@ -95,7 +95,7 @@ Appliance smoke does **not** enable TCP/DTLS.
 | `--dtls-listen` | empty → YAML `:10161` when `dtls.enabled` | address or `off`; `off` disables agent DTLS |
 | `--dtls-trap-listen` | empty → YAML `:10162` when `dtls.enabled` | address or `off`; `off` disables trap DTLS |
 | `--management-listen` | **off** | YAML `management.address` does not bind unless this flag is an address. Image CMD `:8088`. |
-| `--shutdown-timeout` | 10s | drain |
+| `--shutdown-timeout` | 10s | drain, including a background management drain |
 | `--pid-file` | empty | write pid after binds; write failure shuts down and exits 1; unlinked on shutdown |
 
 There is no `--tcp-listen`. TCP addresses come from YAML `tcp.address` /
