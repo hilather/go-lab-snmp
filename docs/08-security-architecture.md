@@ -48,12 +48,12 @@ field.
   Anyone who can reach 162 can fill the store — admission CIDRs.
 - Per-source agent and trap datagram buckets use the management idle
   window (30s, or four burst-refill intervals when that is longer).
-  Idle buckets are deleted from inside `allow`. That scan runs at most
-  once per sweep interval (the idle window divided by four, and at
-  least one second). Each map is hard-capped at 1024 buckets. A new
-  source at the cap evicts the oldest bucket, so a spoofed-source flood
-  cannot grow the map or rescan it on every datagram. A source that
-  still has a bucket keeps its own token bucket.
+  Idle buckets are deleted from inside `allow`. The idle scan is
+  throttled to at most once per sweep interval (the idle window
+  divided by four, and at least one second). Each map is hard-capped
+  at 1024 buckets. A new source at the cap pays one bounded walk to
+  evict the oldest bucket. Existing sources skip that walk and keep
+  their own token bucket.
 - No trap forward (no amplifier).
 - RFC 3430 TCP is cleartext. DTLS 1.2 is a record layer on IANA
   10161/10162; inner PDU is still community or USM. TLSTM/TSM is

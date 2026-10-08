@@ -28,8 +28,10 @@ func newQueryLimiter(rate, burst float64, now func() time.Time) *queryLimiter {
 	if now == nil {
 		now = time.Now
 	}
+	// A non-positive rate is 1/s. Nil allow is unlimited, and setRate
+	// returns immediately on nil, so that limiter could never be updated.
 	if rate <= 0 {
-		return nil
+		rate = 1
 	}
 	if burst <= 0 {
 		burst = rate

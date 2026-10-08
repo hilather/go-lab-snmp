@@ -163,6 +163,33 @@ func TestPerIPLimiterCountsSweepsOncePerInterval(t *testing.T) {
 	}
 }
 
+// TestNewQueryLimiterZeroRateLimits locks the pre-branch fail-safe:
+// a non-positive rate is 1/s, not a nil limiter. Nil allow is unlimited,
+// and setRate returns immediately on nil.
+func TestNewQueryLimiterZeroRateLimits(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	l := newQueryLimiter(0, 0, func() time.Time { return now })
+	if l == nil {
+		t.Fatal("newQueryLimiter(0, 0) returned nil (unlimited)")
+	}
+	if !l.allow("10.0.0.1") {
+		t.Fatal("zero rate denied the first datagram; want 1/s")
+	}
+	if l.allow("10.0.0.1") {
+		t.Fatal("zero rate allowed a second datagram in the same instant")
+	}
+	l.setRate(2, 2)
+	if !l.allow("10.0.0.2") {
+		t.Fatal("setRate did not admit the first datagram of the updated burst")
+	}
+	if !l.allow("10.0.0.2") {
+		t.Fatal("setRate did not admit the second datagram of the updated burst")
+	}
+	if l.allow("10.0.0.2") {
+		t.Fatal("setRate left the limiter above the updated burst")
+	}
+}
+
 func TestSweepIntervalFloor(t *testing.T) {
 	if got := sweepGap(2 * time.Second); got != time.Second {
 		t.Fatalf("sweep floor = %s, want 1s", got)
