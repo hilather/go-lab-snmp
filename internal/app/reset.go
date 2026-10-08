@@ -58,10 +58,12 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 
 	prevL := s.listenersFor(prev)
 	nextL := s.listenersFor(next)
-	oldMgmt := ""
+	// An empty YAML address still honors the CLI override, including when prev is nil.
+	prevAddr := ""
 	if prev != nil {
-		oldMgmt = effectiveMgmt(s.mgmtOverride, prev.ManagementAddress)
+		prevAddr = prev.ManagementAddress
 	}
+	oldMgmt := effectiveMgmt(s.mgmtOverride, prevAddr)
 	newMgmt := effectiveMgmt(s.mgmtOverride, next.ManagementAddress)
 
 	synced := false

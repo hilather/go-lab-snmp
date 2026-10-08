@@ -391,6 +391,44 @@ func TestResetTrapPolicyFailureRebindsManagementBack(t *testing.T) {
 		}
 		assertResetKeptState(t, svc, before)
 	})
+
+	// No active snapshot and a CLI management override: both effective
+	// addresses are the override. A trap-policy failure must not pass ""
+	// to httpRebind, which the rest server treats as Shutdown.
+	t.Run("no snapshot does not shut the override listener down", func(t *testing.T) {
+		const override = "127.0.0.1:9090"
+		path := copyFull(t)
+		svc := New(Options{
+			BootstrapPath:      path,
+			MgmtListenOverride: override,
+		})
+		t.Cleanup(svc.Close)
+		if svc.Active() != nil {
+			t.Fatal("active snapshot present; prev must be nil")
+		}
+		var calls []string
+		svc.SetHTTPRebind(func(addr string) error {
+			calls = append(calls, addr)
+			return nil
+		})
+		svc.trapPolicyFail = errors.New(policyErr)
+
+		_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "trap-policy-no-snapshot"})
+		if err == nil || !strings.Contains(err.Error(), policyErr) {
+			t.Fatalf("error %v, want trap-policy failure", err)
+		}
+		for _, addr := range calls {
+			if addr == "" {
+				t.Fatalf("httpRebind %q shut the override listener down", calls)
+			}
+		}
+		if len(calls) != 0 {
+			t.Fatalf("httpRebind %q, want no rebind while the override is pinned", calls)
+		}
+		if svc.Active() != nil {
+			t.Fatal("failed reset installed a snapshot")
+		}
+	})
 }
 
 type resetKeptState struct {
