@@ -21,7 +21,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Fixed
 
-- mcp-stdio follows the live verifier for its startup token id. A reset that demotes or removes that token drops the corresponding authority on the next tool call.
+- mcp-stdio re-authenticates its startup bearer on each call. A same-id secret rotation revokes the stdio process. Demoting or removing that secret drops the corresponding authority on the next tool call. The process acts as whatever principal the startup secret authenticates as.
 - A failed reset restores data-plane listeners to the snapshot that is still active. A management bind error no longer leaves sockets on the candidate addresses.
 - Agent and trap per-source datagram limiters drop idle buckets, using the same idle window as the management limiter.
 - CI runs on `v*` tags and the tag release gate requires that tag's own completed push run. It fails when that newest matching run is still in progress, and a pull_request run or a main-branch push of the same SHA does not satisfy the gate. release.yml passes the tag and the notes path in as environment variables. The changelog check is skipped on tag pushes.

@@ -28,16 +28,19 @@ func actorOf(p auth.Principal) app.Actor {
 	}
 }
 
-// fixedActor re-reads the pinned token id from the live verifier.
-// The caller's FixedActor is an identity anchor, not a scope cache.
-// A pin with no verifier keeps the startup snapshot. A missing id misses.
+// fixedActor re-authenticates the startup bearer on every call.
+// The caller's FixedActor is an identity anchor, not a scope cache, and is never mutated.
+// A pin with no verifier keeps the startup snapshot.
+// A secret that no longer authenticates returns no actor.
+// On success the actor is the live principal for that secret, which may
+// be a different id than the one recorded at process start.
 func (s *Server) fixedActor() (app.Actor, bool) {
 	if s == nil || s.cfg.FixedActor == nil {
 		return app.Actor{}, false
 	}
 	if s.cfg.Auth != nil {
-		p, ok := s.cfg.Auth.PrincipalByID(s.cfg.FixedActor.ID)
-		if !ok {
+		p, err := s.cfg.Auth.AuthenticateBearer(s.cfg.StdioSecret)
+		if err != nil {
 			return app.Actor{}, false
 		}
 		return actorOf(p), true

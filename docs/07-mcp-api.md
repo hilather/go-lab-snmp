@@ -11,11 +11,12 @@ Official SDK `github.com/modelcontextprotocol/go-sdk` **v1.7.0**, protocol
 
 Tools are `snmp_*`. Resources are `labsnmp://…`. Bearer-only.
 MCP must not HTTP-call REST. `labsnmp mcp-stdio` requires `--config`
-and `--token-file`. mcp-stdio binds the process to that token id. Each
-tool call re-reads the id from the live verifier. A reset that demotes
-the id drops `snmp.admin` on the next call. Removing the id denies
-every scoped tool. HTTP MCP with a bearer header still authenticates
-that header.
+and `--token-file`. mcp-stdio re-authenticates that startup secret on
+each tool call. The process acts as whatever principal the secret
+authenticates as now. A same-id secret rotation revokes the stdio
+process. Demoting that principal drops `snmp.admin` on the next call.
+Removing the secret denies every scoped tool. HTTP MCP with a bearer
+header still authenticates that header.
 
 Tools and resources: `docs/05-control-plane-and-parity.md`.
 Pin protocol version; reject others unless `allowLegacyClients` is true.

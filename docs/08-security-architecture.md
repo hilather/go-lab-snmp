@@ -12,11 +12,12 @@ digest compare (`crypto/subtle`). No HTTP Basic, no OAuth PRM. Roles
 are `administrator` and `reader` and expand to `snmp.read`,
 `snmp.write`, `snmp.admin`, `snmp.audit.read`. `snmp.admin` satisfies
 every scope. Management bind fails closed with zero usable tokens
-unless `--management-listen=off`. mcp-stdio binds the process to the
-`--token-file` token id. Each tool call re-reads that id from the live
-verifier. A reset that demotes the id drops `snmp.admin` on the next
-call. Removing the id denies every scoped tool. HTTP MCP with a bearer
-header still authenticates that header.
+unless `--management-listen=off`. mcp-stdio re-authenticates the
+`--token-file` startup secret on each tool call. The process acts as
+whatever principal that secret authenticates as now. A same-id secret
+rotation revokes the stdio process. Demoting that principal drops
+`snmp.admin` on the next call. Removing the secret denies every scoped
+tool. HTTP MCP with a bearer header still authenticates that header.
 
 Every `/v1` route except health live/ready (and `GET /v1/metrics` when
 `observability.metrics.publicPath` is true) requires bearer or a

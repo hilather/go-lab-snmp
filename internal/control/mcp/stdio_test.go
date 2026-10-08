@@ -16,6 +16,7 @@ func TestStdioDevAdapterSameRegistry(t *testing.T) {
 	s, _ := newTestServer(t)
 	actor := s.actorFrom(t.Context())
 	if actor.ID == "" {
+		s.cfg.StdioSecret = testBearerToken
 		s.cfg.FixedActor = &app.Actor{
 			ID: "admin", Class: "token", Role: model.RoleAdministrator,
 			Scopes: model.ScopesForRole(model.RoleAdministrator), Transport: "mcp",
@@ -59,6 +60,7 @@ func TestStdioDevAdapterSameRegistry(t *testing.T) {
 
 func TestStdioPinnedInitializeRejectsLegacy(t *testing.T) {
 	s, _ := newPinnedServer(t)
+	s.cfg.StdioSecret = testBearerToken
 	s.cfg.FixedActor = &app.Actor{
 		ID: "admin", Class: "token", Role: model.RoleAdministrator,
 		Scopes: model.ScopesForRole(model.RoleAdministrator), Transport: "mcp",

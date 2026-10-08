@@ -84,6 +84,7 @@ func mcpStdioWithContext(ctx context.Context, args []string, stdout, stderr io.W
 		RatePerSec:         -1,
 		Auth:               verifier,
 		FixedActor:         fixed,
+		StdioSecret:        secret,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "labsnmp mcp-stdio: %v\n", err)
