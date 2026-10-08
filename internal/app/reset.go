@@ -92,7 +92,13 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 	}
 	if s.httpRebind != nil && newMgmt != oldMgmt {
 		if err := s.httpRebind(newMgmt); err != nil {
-			// mgmtMoved stays false: this call did not succeed, so do not rebind back.
+			// A non-nil error means the previous listener is untouched, so
+			// management was not moved. Empty newMgmt is the exception: the
+			// hook may already have closed the listener and still returned
+			// an error. Treat that as moved so rollback rebinds oldMgmt.
+			if newMgmt == "" {
+				mgmtMoved = true
+			}
 			return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, mgmtMoved, oldMgmt, prevL)
 		}
 		mgmtMoved = true

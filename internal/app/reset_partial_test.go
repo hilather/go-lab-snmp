@@ -431,6 +431,42 @@ func TestResetTrapPolicyFailureRebindsManagementBack(t *testing.T) {
 	})
 }
 
+// TestResetManagementOffFailureRebindsOld asserts that a hook which fails
+// while turning management off is rolled back onto the address that is
+// still active. A non-nil rebind error means the previous listener is
+// untouched, except when the new address is empty: that call may already
+// have closed the listener.
+func TestResetManagementOffFailureRebindsOld(t *testing.T) {
+	path := copyFull(t)
+	svc := bootPath(t, path)
+	old := svc.Active().ManagementAddress
+	if old == "" {
+		t.Fatal("fixture management address is empty")
+	}
+	rewriteFixture(t, path, `address: "`+old+`"`, `address: ""`)
+
+	var calls []string
+	svc.SetHTTPRebind(func(addr string) error {
+		calls = append(calls, addr)
+		if addr == "" {
+			return errors.New("management off failed")
+		}
+		return nil
+	})
+
+	_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "mgmt-off"})
+	if err == nil || !strings.Contains(err.Error(), "management off failed") {
+		t.Fatalf("error %v, want management off failed; calls %v", err, calls)
+	}
+	want := []string{"", old}
+	if len(calls) != len(want) || calls[0] != want[0] || calls[1] != want[1] {
+		t.Fatalf("httpRebind %q, want %q; err %v", calls, want, err)
+	}
+	if got := svc.Active().ManagementAddress; got != old {
+		t.Fatalf("management address %q, want %q", got, old)
+	}
+}
+
 type resetKeptState struct {
 	rev     model.Revision
 	mgmt    string
