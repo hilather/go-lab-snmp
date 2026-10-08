@@ -10,8 +10,10 @@ type queryLimiter struct {
 	burst float64
 	now   func() time.Time
 
-	mu      sync.Mutex
-	buckets map[string]*qbucket
+	mu        sync.Mutex
+	buckets   map[string]*qbucket
+	lastSweep time.Time
+	sweeps    int
 }
 
 type qbucket struct {
@@ -19,12 +21,15 @@ type qbucket struct {
 	last   time.Time
 }
 
+// maxQueryBuckets matches DefaultMaxInflight and the regression ceiling.
+const maxQueryBuckets = 1024
+
 func newQueryLimiter(rate, burst float64, now func() time.Time) *queryLimiter {
 	if now == nil {
 		now = time.Now
 	}
 	if rate <= 0 {
-		rate = 1
+		return nil
 	}
 	if burst <= 0 {
 		burst = rate
@@ -61,6 +66,9 @@ func (l *queryLimiter) allow(key string) bool {
 	l.evictIdleLocked(now)
 	b := l.buckets[key]
 	if b == nil {
+		if len(l.buckets) >= maxQueryBuckets {
+			l.evictOldestLocked()
+		}
 		b = &qbucket{tokens: l.burst, last: now}
 		l.buckets[key] = b
 	}
@@ -79,22 +87,72 @@ func (l *queryLimiter) allow(key string) bool {
 	return true
 }
 
-// evictIdleLocked drops buckets idle longer than the management window:
-// 30s, or four burst-refill intervals when that is longer.
-func (l *queryLimiter) evictIdleLocked(now time.Time) {
-	if l == nil || len(l.buckets) == 0 {
-		return
-	}
+// idleFor is the management idle window: 30s, or four burst-refill
+// intervals when that is longer.
+func (l *queryLimiter) idleFor() time.Duration {
 	idleFor := 30 * time.Second
-	if l.rate > 0 {
+	if l != nil && l.rate > 0 {
 		refill := time.Duration(float64(time.Second) * (l.burst / l.rate) * 4)
 		if refill > idleFor {
 			idleFor = refill
 		}
 	}
+	return idleFor
+}
+
+// sweepGap is how often an idle scan may run: the idle window divided
+// by four, and at least one second.
+func sweepGap(idle time.Duration) time.Duration {
+	every := idle / 4
+	if every < time.Second {
+		return time.Second
+	}
+	return every
+}
+
+func (l *queryLimiter) sweepInterval() time.Duration {
+	if l == nil {
+		return time.Second
+	}
+	return sweepGap(l.idleFor())
+}
+
+// evictIdleLocked drops buckets idle longer than the management window.
+// The scan runs at most once per sweep interval.
+func (l *queryLimiter) evictIdleLocked(now time.Time) {
+	if l == nil {
+		return
+	}
+	if !l.lastSweep.IsZero() && now.Sub(l.lastSweep) < l.sweepInterval() {
+		return
+	}
+	l.lastSweep = now
+	l.sweeps++
+	if len(l.buckets) == 0 {
+		return
+	}
+	idleFor := l.idleFor()
 	for k, b := range l.buckets {
 		if now.Sub(b.last) > idleFor {
 			delete(l.buckets, k)
 		}
+	}
+}
+
+// evictOldestLocked drops the bucket with the oldest last-allow time so
+// a new key can be inserted without passing maxQueryBuckets.
+func (l *queryLimiter) evictOldestLocked() {
+	var oldestKey string
+	var oldest time.Time
+	first := true
+	for k, b := range l.buckets {
+		if first || b.last.Before(oldest) {
+			first = false
+			oldest = b.last
+			oldestKey = k
+		}
+	}
+	if oldestKey != "" {
+		delete(l.buckets, oldestKey)
 	}
 }
