@@ -14,7 +14,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Fixed
 
-- None.
+- mcp-stdio follows the live verifier for its startup token id. A reset that demotes or removes that token drops the corresponding authority on the next tool call.
 
 ### Removed
 

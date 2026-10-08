@@ -302,11 +302,11 @@ func (s *Server) actorFrom(ctx context.Context) app.Actor {
 		return a
 	}
 	if s != nil && s.cfg.FixedActor != nil {
-		out := *s.cfg.FixedActor
-		if out.Transport == "" {
-			out.Transport = "mcp"
+		if out, ok := s.fixedActor(); ok {
+			return out
 		}
-		return out
+		// The startup id is gone. Do not fall through to the startup scopes.
+		return app.Actor{}
 	}
 	if a.Transport == "" {
 		a.Transport = "mcp"

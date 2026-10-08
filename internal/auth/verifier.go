@@ -199,6 +199,22 @@ func (v *Verifier) Mode() string {
 	return v.mode
 }
 
+// PrincipalByID returns the current principal for a compiled token id.
+// A missing or empty id returns (zero, false). Ids are unique at compile.
+func (v *Verifier) PrincipalByID(id string) (Principal, bool) {
+	if v == nil || id == "" {
+		return Principal{}, false
+	}
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	for _, t := range v.tokens {
+		if t.id == id {
+			return principalOf(t), true
+		}
+	}
+	return Principal{}, false
+}
+
 // TokenCount is the number of compiled bearer principals.
 func (v *Verifier) TokenCount() int {
 	if v == nil {

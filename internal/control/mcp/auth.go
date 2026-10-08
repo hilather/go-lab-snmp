@@ -28,6 +28,27 @@ func actorOf(p auth.Principal) app.Actor {
 	}
 }
 
+// fixedActor re-reads the pinned token id from the live verifier.
+// The caller's FixedActor is an identity anchor, not a scope cache.
+// A pin with no verifier keeps the startup snapshot. A missing id misses.
+func (s *Server) fixedActor() (app.Actor, bool) {
+	if s == nil || s.cfg.FixedActor == nil {
+		return app.Actor{}, false
+	}
+	if s.cfg.Auth != nil {
+		p, ok := s.cfg.Auth.PrincipalByID(s.cfg.FixedActor.ID)
+		if !ok {
+			return app.Actor{}, false
+		}
+		return actorOf(p), true
+	}
+	out := *s.cfg.FixedActor
+	if out.Transport == "" {
+		out.Transport = "mcp"
+	}
+	return out, true
+}
+
 func (s *Server) authenticate(r *http.Request) (app.Actor, error) {
 	if s.cfg.Auth == nil {
 		return app.Actor{}, domainerr.Unauthenticated("authentication required")
@@ -37,9 +58,9 @@ func (s *Server) authenticate(r *http.Request) (app.Actor, error) {
 		return app.Actor{}, domainerr.Unauthenticated("MCP accepts bearer tokens only")
 	}
 	if s.cfg.FixedActor != nil && h == "" {
-		out := *s.cfg.FixedActor
-		if out.Transport == "" {
-			out.Transport = "mcp"
+		out, ok := s.fixedActor()
+		if !ok {
+			return app.Actor{}, domainerr.Unauthenticated("authentication required")
 		}
 		return out, nil
 	}
