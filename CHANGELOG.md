@@ -16,6 +16,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 - mcp-stdio follows the live verifier for its startup token id. A reset that demotes or removes that token drops the corresponding authority on the next tool call.
 - A failed reset restores data-plane listeners to the snapshot that is still active. A management bind error no longer leaves sockets on the candidate addresses.
+- Agent and trap per-source datagram limiters drop idle buckets, using the same idle window as the management limiter.
 
 ### Removed
 

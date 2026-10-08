@@ -58,6 +58,7 @@ func (l *queryLimiter) allow(key string) bool {
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.evictIdleLocked(now)
 	b := l.buckets[key]
 	if b == nil {
 		b = &qbucket{tokens: l.burst, last: now}
@@ -76,4 +77,24 @@ func (l *queryLimiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+// evictIdleLocked drops buckets idle longer than the management window:
+// 30s, or four burst-refill intervals when that is longer.
+func (l *queryLimiter) evictIdleLocked(now time.Time) {
+	if l == nil || len(l.buckets) == 0 {
+		return
+	}
+	idleFor := 30 * time.Second
+	if l.rate > 0 {
+		refill := time.Duration(float64(time.Second) * (l.burst / l.rate) * 4)
+		if refill > idleFor {
+			idleFor = refill
+		}
+	}
+	for k, b := range l.buckets {
+		if now.Sub(b.last) > idleFor {
+			delete(l.buckets, k)
+		}
+	}
 }

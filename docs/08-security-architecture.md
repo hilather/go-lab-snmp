@@ -45,6 +45,12 @@ field.
 - v3: USM. Time window 150s. Localized keys at compile.
 - Trap sink: unauthenticated beyond community/user on the PDU.
   Anyone who can reach 162 can fill the store — admission CIDRs.
+- Per-source agent and trap datagram buckets use the management idle
+  window (30s, or four burst-refill intervals when that is longer) and
+  are deleted from inside `allow`. Memory is bounded by that idle
+  window (30 s / four refills) and the per-datagram eviction scan is
+  proportional to the number of sources seen within that window; it is
+  not a hard cap.
 - No trap forward (no amplifier).
 - RFC 3430 TCP is cleartext. DTLS 1.2 is a record layer on IANA
   10161/10162; inner PDU is still community or USM. TLSTM/TSM is
