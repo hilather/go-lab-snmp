@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git tag (vX.Y.Z) or commit to gate
+        description: Release tag (vX.Y.Z, refs/tags/ prefix optional) to gate
         required: true
         type: string
 
