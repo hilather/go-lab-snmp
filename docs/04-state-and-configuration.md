@@ -181,7 +181,8 @@ as SNMP SET and is not an apply verb. Overlay does not change revision;
 Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
 rebind UDP agent and trap sockets (bind-new-first; empty address stops
 that listener), swap snapshot, increment `storeGeneration`. Never writes
-the file. CLI listen flags still win after Reset. If a later step fails
-after the data-plane sync has swapped sockets, Reset syncs the previous
-listeners again and leaves the active snapshot, overlay, and trap store
-unchanged.
+the file. CLI listen flags still win after Reset. Trap policy is applied
+before that ephemeral wipe. If a later step fails after the data-plane
+sync has swapped sockets, or trap policy fails, Reset syncs the previous
+listeners again and leaves the active snapshot, overlay, traps, and query
+ring unchanged.

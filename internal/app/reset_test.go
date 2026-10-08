@@ -373,6 +373,53 @@ func TestResetDataPlaneSyncErrorKeepsSnapshot(t *testing.T) {
 	}
 }
 
+// TestResetReplaceCapsFailureKeepsEphemeralState asserts a ReplaceCaps
+// failure during reset does not wipe the overlay, traps, or queries and
+// does not swap the snapshot.
+func TestResetReplaceCapsFailureKeepsEphemeralState(t *testing.T) {
+	svc, _ := mustBoot(t)
+	const oid = "1.3.6.1.2.1.2.2.1.8.1"
+	svc.Overlay().Set("public-if", oid, mibtree.Value{Type: model.TypeInteger, Signed: 5})
+	if _, err := svc.Traps().Insert(store.TrapRecord{Version: "v2c", PDUType: "trap", Community: "public"}); err != nil {
+		t.Fatal(err)
+	}
+	svc.Queries().Insert(store.Query{Type: "get", Identity: "public", Decision: "ok"})
+	beforeRev := svc.Active().Revision
+	beforeGen := svc.Overlay().Generation()
+	beforePolicy := svc.Traps().Policy()
+	beforeTraps := svc.Traps().Stats()
+	beforeQueries := svc.Queries().Len()
+
+	svc.trapPolicyFail = errors.New("replace caps failed")
+	_, err := svc.Reset(context.Background(), actor(), ResetIn{Reason: "caps-fail"})
+	if err == nil {
+		t.Fatal("expected ReplaceCaps failure")
+	}
+	if svc.Active().Revision != beforeRev {
+		t.Fatalf("snapshot revision changed %s -> %s", beforeRev, svc.Active().Revision)
+	}
+	val, ok := svc.Overlay().Get("public-if", oid)
+	if !ok || val.Signed != 5 {
+		t.Fatal("failed reset wiped the overlay")
+	}
+	if svc.Overlay().Generation() != beforeGen {
+		t.Fatalf("overlay generation %d, want %d", svc.Overlay().Generation(), beforeGen)
+	}
+	if st := svc.Traps().Stats(); st.Messages != beforeTraps.Messages || st.Generation != beforeTraps.Generation {
+		t.Fatalf("failed reset wiped traps: messages %d gen %d, want messages %d gen %d", st.Messages, st.Generation, beforeTraps.Messages, beforeTraps.Generation)
+	}
+	if svc.Traps().Policy() != beforePolicy {
+		t.Fatalf("trap policy changed from %+v to %+v", beforePolicy, svc.Traps().Policy())
+	}
+	if svc.Queries().Len() != beforeQueries {
+		t.Fatalf("failed reset wiped queries: len %d, want %d", svc.Queries().Len(), beforeQueries)
+	}
+	listed := svc.Queries().List()
+	if len(listed) != 1 || listed[0].Identity != "public" {
+		t.Fatalf("queries after failed reset: %+v", listed)
+	}
+}
+
 func TestApplyAndResetMaxWait(t *testing.T) {
 	svc, snap := mustBoot(t)
 	a := actor()

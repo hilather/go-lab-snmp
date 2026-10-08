@@ -17,9 +17,11 @@ import (
 	"github.com/hilather/go-lab-snmp/internal/store"
 )
 
-// Reset rereads the bootstrap mount, compiles, drops the SET overlay, wipes
-// traps and queries, and swaps only after success. It never writes the file.
-// CLI listen flags still win after Reset.
+// Reset rereads the bootstrap mount, compiles, applies trap policy, then
+// drops the SET overlay and wipes traps and queries. It swaps only after
+// success. A trap-policy failure leaves the ephemeral store and the active
+// snapshot unchanged. It never writes the file. CLI listen flags still win
+// after Reset.
 func (s *App) Reset(ctx context.Context, actor Actor, in ResetIn) (*ApplyResult, error) {
 	if err := s.requireCtx(ctx); err != nil {
 		return nil, err
@@ -91,10 +93,10 @@ func (s *App) resetLocked(ctx context.Context, actor Actor, in ResetIn) (*ApplyR
 		}
 	}
 
-	store.ResetEphemeral(s.overlay, s.traps, s.queries)
 	if err := s.applyTrapPolicy(next); err != nil {
 		return nil, nil, s.rollbackListeners(err, synced, agentMoved, trapMoved, prevL)
 	}
+	store.ResetEphemeral(s.overlay, s.traps, s.queries)
 
 	displaced := s.snaps.Swap(next)
 	s.snaps.SetBootstrap(next)

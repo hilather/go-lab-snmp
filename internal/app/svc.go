@@ -74,6 +74,9 @@ type App struct {
 	trapRebind    func(addr string) error
 	httpRebind    func(addr string) error
 	dataPlaneSync func(desired DesiredListeners) error
+	// trapPolicyFail, when set, makes applyTrapPolicy return that error
+	// before ReplaceCaps. Reset tests use it. Production leaves it nil.
+	trapPolicyFail error
 
 	metrics *observability.Registry
 	logger  *observability.Logger

@@ -290,6 +290,9 @@ func (s *App) syncTrapPolicyIfChanged(prev, next *snapshot.Snapshot) error {
 }
 
 func (s *App) applyTrapPolicy(next *snapshot.Snapshot) error {
+	if s.trapPolicyFail != nil {
+		return s.trapPolicyFail
+	}
 	if s.traps == nil || next == nil || next.Canonical == nil {
 		return nil
 	}
