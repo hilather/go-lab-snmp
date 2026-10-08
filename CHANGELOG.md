@@ -18,6 +18,10 @@ All notable user-visible and operator-visible changes are recorded here.
   1.26 language, no toolchain line); the one remaining module-level
   finding GO-2026-5932 (x/crypto openpgp) has no fix and is not
   reachable.
+- Web development dependency `source-map-js` updates from 1.2.1 to 1.2.2
+  (GHSA-68fv-2mgg-jv7q, high: event-loop denial of service through
+  indexed source-map section offsets). Lockfile only; the built web
+  assets are byte-identical.
 
 ### Fixed
 
