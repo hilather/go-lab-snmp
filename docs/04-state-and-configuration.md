@@ -186,3 +186,10 @@ before that ephemeral wipe. If a later step fails after the data-plane
 sync has swapped sockets, or trap policy fails, Reset syncs the previous
 listeners again and rebinds management when that bind already succeeded.
 The active snapshot, overlay, traps, and query ring stay unchanged.
+A reset that turns management off or moves it returns without waiting
+on the request that called it. The old management server stops accepting
+at once and drains in the background for up to 5s, then remaining
+connections are closed. A non-nil error from a move means the previous
+listener was left in place. A failed attempt to turn management off
+still rebinds the address that is still active, because that call may
+already have closed the listener.

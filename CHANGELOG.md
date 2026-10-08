@@ -23,6 +23,7 @@ All notable user-visible and operator-visible changes are recorded here.
 
 - mcp-stdio re-authenticates its startup bearer on each call. A same-id secret rotation revokes the stdio process. Demoting or removing that secret drops the corresponding authority on the next tool call. The process acts as whatever principal the startup secret authenticates as.
 - A failed reset restores data-plane listeners and the management listener to the snapshot that is still active. A management bind error no longer leaves sockets on the candidate addresses. A trap-policy failure puts management back only when that rebind already succeeded.
+- A reset that turns management off or moves it returns without waiting on its own request. The old management server stops accepting at once and drains in the background for up to 5s, then remaining connections are closed.
 - A failed reset applies trap policy before it wipes the SET overlay, trap inbox, or query ring. A ReplaceCaps failure leaves that ephemeral state and the active snapshot in place.
 - Agent and trap per-source datagram limiters drop idle buckets, using the same idle window as the management limiter. The idle scan runs at most once per sweep interval (idle window / 4, at least 1s). Each map is capped at 1024 buckets; a new source at the cap pays one bounded walk to evict the oldest bucket. Existing sources skip that walk.
 - An agent datagram limiter built with a non-positive rate uses 1 per second, so a zero rate stays limited and a later rate update still applies.

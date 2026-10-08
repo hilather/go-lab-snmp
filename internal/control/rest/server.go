@@ -35,6 +35,10 @@ const (
 	headerRevision           = "X-LabSNMP-Revision"
 	headerAllow              = "Allow"
 	requestURNPrefix         = "urn:labsnmp:request:"
+	// managementDrainTimeout bounds the background drain of a management
+	// server that has stopped accepting. Leftover connections (long-poll
+	// traps:wait, SSE) are closed when the drain exceeds it.
+	managementDrainTimeout = 5 * time.Second
 )
 
 // Config constructs a management HTTP server.
@@ -206,20 +210,33 @@ func (s *Server) newHTTPServer() *http.Server {
 	}
 }
 
-// Rebind binds addr first, then drains the old HTTP server. Empty addr unbinds.
-// Bound stays true on the new listener as soon as Listen succeeds (docs/09).
+// Rebind moves the management listener to addr. An empty addr stops
+// accepting and clears the listener. The old server stops accepting
+// before Rebind returns and drains in the background; Rebind does not
+// wait for that drain. Bound is true on the new listener as soon as
+// Listen succeeds, and false after an unbind (docs/09).
+//
+// A non-nil error means the previous listener is untouched. That is
+// only a failed net.Listen on the new address.
 func (s *Server) Rebind(addr string) error {
 	if s == nil {
 		return errors.New("rest: nil server")
 	}
+	if addr == "" {
+		s.mu.Lock()
+		s.closed.Store(true)
+		hs := s.http
+		ln := s.ln
+		s.http = nil
+		s.ln = nil
+		s.addr = ""
+		s.mu.Unlock()
+		drainAsync(hs, ln)
+		return nil
+	}
 	s.mu.Lock()
 	cur := s.addr
 	s.mu.Unlock()
-	if addr == "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return s.Shutdown(ctx)
-	}
 	if addr == cur && s.Bound() {
 		return nil
 	}
@@ -230,18 +247,49 @@ func (s *Server) Rebind(addr string) error {
 	hs := s.newHTTPServer()
 	s.mu.Lock()
 	old := s.http
+	oldLn := s.ln
 	s.http = hs
 	s.ln = ln
 	s.addr = ln.Addr().String()
 	s.closed.Store(false)
 	s.mu.Unlock()
 	go func() { _ = hs.Serve(ln) }()
-	if old != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = old.Shutdown(ctx)
-		cancel()
-	}
+	drainAsync(old, oldLn)
 	return nil
+}
+
+// drainAsync closes ln before it returns, then drains hs in the
+// background for managementDrainTimeout. A timed-out drain calls Close
+// so connections on a server that is no longer bound do not stay open.
+//
+// Shutdown sets inShutdown, closes listeners it is already tracking,
+// and only then runs RegisterOnShutdown hooks via go f(). Waiting for
+// that hook before closing ln keeps Serve from observing a raw close
+// and returning "use of closed network connection" instead of
+// ErrServerClosed. The raw listener is closed here as well because
+// Serve may not have tracked it yet; onceCloseListener makes the
+// second close harmless.
+func drainAsync(hs *http.Server, ln net.Listener) {
+	if hs == nil {
+		if ln != nil {
+			_ = ln.Close()
+		}
+		return
+	}
+	started := make(chan struct{})
+	hs.RegisterOnShutdown(func() { close(started) })
+	ctx, cancel := context.WithTimeout(context.Background(), managementDrainTimeout)
+	go func() {
+		err := hs.Shutdown(ctx)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) {
+			_ = hs.Close()
+		}
+	}()
+	<-started
+	if ln != nil {
+		_ = ln.Close()
+	}
 }
 
 // Bound reports whether a listener is accepting.
@@ -271,11 +319,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 // Addr returns the bound address after Serve, or the configured listen address.
+// After Rebind(""), Bound is false and Addr is empty.
 func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ln != nil {
 		return s.ln.Addr().String()
+	}
+	if s.addr != "" {
+		return s.addr
+	}
+	if s.closed.Load() {
+		return ""
 	}
 	if s.cfg.Addr != "" {
 		return s.cfg.Addr

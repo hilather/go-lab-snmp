@@ -268,6 +268,7 @@ func (s *App) SetTrapRebind(fn func(addr string) error) {
 }
 
 // SetHTTPRebind installs the management HTTP bind-new-first hook.
+// A non-nil error means the previous listener is untouched.
 func (s *App) SetHTTPRebind(fn func(addr string) error) {
 	if s == nil {
 		return

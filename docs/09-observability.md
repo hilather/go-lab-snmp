@@ -38,7 +38,12 @@ bearer scrape (SEC-001).
 data-plane listener bound AND (management bound OR
 `--management-listen=off`). Disabled TCP/DTLS (default
 `tcp.enabled` / `dtls.enabled` false) do not demand a bind. Ready
-stays true on the old sockets until a new bind succeeds.
+stays true on the old sockets until a new bind succeeds. A management
+move binds the new listener before the old one stops accepting
+(`Bound` is true on the new listener as soon as Listen succeeds).
+The old management server then drains in the background for up to
+5s, and remaining connections are closed. Turning management off
+stops accepting at once, clears `Bound`, and uses the same drain.
 
 `GET /v1/status` `listeners[]` always includes `agent`, `traps`,
 and `management`. It may include `agent-tcp`, `traps-tcp`,
