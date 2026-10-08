@@ -53,7 +53,9 @@ field.
   divided by four, and at least one second). Each map is hard-capped
   at 1024 buckets. A new source at the cap pays one bounded walk to
   evict the oldest bucket. Existing sources skip that walk and keep
-  their own token bucket.
+  their own token bucket. UDP source addresses can be spoofed, so a
+  flood from many forged sources can evict a real source's bucket; that
+  source then starts again from a full burst.
 - No trap forward (no amplifier).
 - RFC 3430 TCP is cleartext. DTLS 1.2 is a record layer on IANA
   10161/10162; inner PDU is still community or USM. TLSTM/TSM is
