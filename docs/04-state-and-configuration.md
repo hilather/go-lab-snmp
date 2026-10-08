@@ -169,6 +169,10 @@ never. SET overlay does not change revision. `storeGeneration` does.
 
 Apply requires `expectedRevision` + `Idempotency-Key`.
 Mismatch returns `revision_mismatch` with `currentRevision`.
+A reused key whose `expectedRevision` differs from the cached request
+is `idempotency_conflict`. The same key, operations, reason, and
+`expectedRevision` replay the cached apply. A new key with the wrong
+revision is still `revision_mismatch`.
 
 `oids:set` body is a single `{oid, value}`. It writes the same SET overlay
 as SNMP SET and is not an apply verb. Overlay does not change revision;
