@@ -2,7 +2,7 @@
 
 Status: Proposed
 Owners: Configuration
-Last reviewed: 2026-09-05
+Last reviewed: 2026-10-07
 
 Desired state is one YAML document. SET overlay and traps are not
 desired state. The process never writes the bootstrap file.
@@ -177,4 +177,7 @@ as SNMP SET and is not an apply verb. Overlay does not change revision;
 Reset: reread bootstrap, drop overlay, wipe traps and the query ring,
 rebind UDP agent and trap sockets (bind-new-first; empty address stops
 that listener), swap snapshot, increment `storeGeneration`. Never writes
-the file. CLI listen flags still win after Reset.
+the file. CLI listen flags still win after Reset. If a later step fails
+after the data-plane sync has swapped sockets, Reset syncs the previous
+listeners again and leaves the active snapshot, overlay, and trap store
+unchanged.
