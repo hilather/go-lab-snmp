@@ -314,7 +314,7 @@ Pack freeze is **Go 1.26**, not patch `1.26.6`. FND-001:
 - `go.mod`: `go 1.26.0` (still the 1.26 language; any installed 1.26.x satisfies the pack; no `toolchain go1.26.6` requirement)
 - `mise.toml` (or `.tool-versions`): `go = "1.26"` so the local mise shim resolves; any installed 1.26.x (this machine has `1.26.5` and `1.26.7`) is enough
 - CI: `actions/setup-go` with `go-version: "1.26"` (or a patch setup-go can download, e.g. `1.26.7`). Do **not** set `GOTOOLCHAIN: local` unless that exact patch is installed
-- Image: `golang:1.26-alpine` (or `1.26.7-alpine`), not a hard `1.26.6-alpine` pin. Superseded 2026-10-08: the image is patch-pinned to `golang:1.26.9-alpine` with the rest of the go-lab family (stdlib advisories GO-2026-6603..6617); `go.mod` still has no `toolchain` line
+- Image: `golang:1.26-alpine` (or `1.26.7-alpine`), not a hard `1.26.6-alpine` pin
 
 ### K20 — Features catalog is docs/04 closed ops + listener/engine/auth only
 
