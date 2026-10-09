@@ -5,7 +5,7 @@
 # Appliance smoke uses --snmp-listen=:1161 --trap-listen=:1162 and cap_drop ALL.
 # Integrator compose restores only NET_BIND_SERVICE so bind-to-161/162 works.
 
-FROM golang:1.26-alpine AS build
+FROM golang:1.26.9-alpine AS build
 WORKDIR /src
 
 RUN apk add --no-cache ca-certificates tzdata

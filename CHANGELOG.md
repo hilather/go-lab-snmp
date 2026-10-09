@@ -10,9 +10,10 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Changed
 
-- CI setup-go `go-version` is 1.26.8 (1.26.0-1.26.7 lack current
-  stdlib security fixes) and the image stays `golang:1.26-alpine`
-  (pack design). golang.org/x/crypto v0.48.0 -> v0.56.0 (x/sys
+- CI setup-go `go-version` is 1.26.9 and the image is pinned to
+  `golang:1.26.9-alpine` (was floating `golang:1.26-alpine`), matching
+  the rest of the go-lab family; 1.26.0-1.26.8 lack current stdlib
+  security fixes (GO-2026-6603..6617). `go.mod` keeps no toolchain line. golang.org/x/crypto v0.48.0 -> v0.56.0 (x/sys
   v0.41.0 -> v0.47.0, x/net v0.49.0 -> v0.57.0) clears the fixable
   govulncheck advisories; `go.mod` now reads `go 1.26.0` (still the
   1.26 language, no toolchain line); the one remaining module-level
