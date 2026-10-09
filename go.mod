@@ -2,6 +2,8 @@ module github.com/hilather/go-lab-snmp
 
 go 1.26.0
 
+toolchain go1.26.9
+
 require (
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/oklog/ulid/v2 v2.1.1

@@ -36,7 +36,7 @@ Changing an invariant requires an ADR first.
 | MCP tools | `snmp_*` |
 | Resources | `labsnmp://…` |
 | MCP protocol | `2026-07-28` |
-| Go | 1.26 |
+| Go | 1.26 language, toolchain go1.26.9 (ADR 0017) |
 | MCP SDK | `github.com/modelcontextprotocol/go-sdk v1.7.0` |
 | License | Apache-2.0 |
 
