@@ -16,8 +16,8 @@ func TestDockerfileContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(body)
-	if !strings.Contains(s, "FROM golang:1.26-alpine AS build") {
-		t.Fatal("Dockerfile must use golang:1.26-alpine, not a hard 1.26.6 pin")
+	if !strings.Contains(s, "FROM golang:1.26.9-alpine AS build") {
+		t.Fatal("Dockerfile must use golang:1.26.9-alpine (go-lab family patch pin)")
 	}
 	if strings.Contains(s, "1.26.6") {
 		t.Fatal("Dockerfile must not pin golang 1.26.6")

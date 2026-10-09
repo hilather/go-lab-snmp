@@ -22,8 +22,8 @@ USER 65532:65532
 
 `--management-listen` still defaults **off** in the binary. The image
 CMD binds `:8088` so HEALTHCHECK and authenticated `/v1` work.
-Build stage is `golang:1.26-alpine` (any 1.26.x; not a hard
-`1.26.6` pin). The operator SPA is `go:embed` of committed
+Build stage is `golang:1.26.9-alpine` (the go-lab family patch
+pin; CI setup-go uses the same 1.26.9). The operator SPA is `go:embed` of committed
 `internal/web/dist`. `GET /` is 200 SPA HTML when `spec.ui.enabled`
 is true; 404 `application/problem+json` when false. CI runs on `v*`
 tags. Tag-gate + GHCR publish is `.github/workflows/release.yml`; the
