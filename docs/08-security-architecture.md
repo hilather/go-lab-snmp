@@ -51,9 +51,10 @@ field.
   Idle buckets are deleted from inside `allow`. The idle scan is
   throttled to at most once per sweep interval (the idle window
   divided by four, and at least one second). Each map is hard-capped
-  at 1024 buckets. A new source at the cap pays one bounded walk to
-  evict the oldest bucket. Existing sources skip that walk and keep
-  their own token bucket. UDP source addresses can be spoofed, so a
+  at 1024 buckets. A new source at the cap evicts the bucket with the
+  oldest last refill in constant time; each limiter keeps its buckets
+  in a list ordered by last refill. Existing sources keep their own
+  token bucket. UDP source addresses can be spoofed, so a
   flood from many forged sources can evict a real source's bucket; that
   source then starts again from a full burst.
 - No trap forward (no amplifier).
