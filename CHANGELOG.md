@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed
+
+- None.
+
+## [1.1.1] - 2026-10-19
+
+Notes: [docs/releases/v1.1.1.md](docs/releases/v1.1.1.md). Go toolchain go1.26.9; stdio auth, reset rollback, and limiter fixes.
+
+### Added
+
+- None.
+
+### Changed
+
 - Go toolchain pinned to go1.26.9 (ADR 0017): `go.mod`
   `toolchain go1.26.9`, CI setup-go `go-version` 1.26.9, and the image
   `golang:1.26.9-alpine` (was floating `golang:1.26-alpine`), matching
