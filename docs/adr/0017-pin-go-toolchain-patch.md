@@ -19,14 +19,14 @@ moved to one exact patch across repos.
 ## Decision
 
 - `go.mod` keeps `go 1.26.0` (the 1.26 language) and adds
-  `toolchain go1.26.9`.
-- CI and release `actions/setup-go` pin `go-version: "1.26.9"`.
-- The build image is `golang:1.26.9-alpine`; `TestDockerfileContract`
+  `toolchain go1.26.10`.
+- CI and release `actions/setup-go` pin `go-version: "1.26.10"`.
+- The build image is `golang:1.26.10-alpine`; `TestDockerfileContract`
   enforces that tag.
 - Patch bumps follow the go-lab family: one PR moves `go.mod`
   `toolchain`, CI, the image and the contract test together.
 - `mise.toml` stays `go = "1.26"`; with the default `GOTOOLCHAIN=auto`
-  the `toolchain` line makes an older local 1.26.x fetch go1.26.9.
+  the `toolchain` line makes an older local 1.26.x fetch go1.26.10.
 
 This supersedes K19's "any 1.26.x / no toolchain line / do not
 hard-pin the image" bullets and the matching Go row in
@@ -35,6 +35,6 @@ hard-pin the image" bullets and the matching Go row in
 
 ## Consequences
 
-Builds need go1.26.9 (downloaded automatically under
+Builds need go1.26.10 (downloaded automatically under
 `GOTOOLCHAIN=auto`). Each stdlib security patch is a deliberate,
 reviewed bump instead of an implicit float.
