@@ -10,6 +10,26 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Changed
 
+- None.
+
+### Fixed
+
+- None.
+
+### Removed
+
+- None.
+
+## [1.1.2] - 2026-10-26
+
+Notes: [docs/releases/v1.1.2.md](docs/releases/v1.1.2.md). Go toolchain go1.26.10 (GO-2026-6809) only.
+
+### Added
+
+- None.
+
+### Changed
+
 - Go toolchain 1.26.9 → 1.26.10: `go.mod` `toolchain go1.26.10`,
   CI and release setup-go `go-version` 1.26.10, image
   `golang:1.26.10-alpine`, `TestDockerfileContract`, the AGENTS.md
