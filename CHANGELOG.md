@@ -10,7 +10,12 @@ All notable user-visible and operator-visible changes are recorded here.
 
 ### Changed
 
-- None.
+- Go toolchain 1.26.10 → 1.26.11 (`go.mod` `toolchain go1.26.11`,
+  CI and release setup-go `go-version` 1.26.11, image
+  `golang:1.26.11-alpine`, `TestDockerfileContract`, the AGENTS.md
+  Go row, docs/11-deployment.md, and ADR 0017 Decision pins);
+  go1.26.11 includes security fixes to cgo, the go command, the
+  compiler, the linker and net/http.
 
 ### Fixed
 
